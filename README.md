@@ -98,6 +98,39 @@ Shows: P&L · Open positions · Strategy status · Recent logs
 
 ---
 
+## 📱 Telegram Alerts (Optional)
+
+iEarn.Bot can send real-time Telegram notifications for critical events:
+
+| Event | Level |
+|-------|-------|
+| SkillPay balance low | ⚠️ Warning |
+| Stop-loss triggered | 🚨 Critical |
+| Take-profit hit | ℹ️ Info |
+| Strategy error | 🚨 Critical |
+| Daily P&L summary | ℹ️ Info |
+
+### Setup
+
+1. **Create a bot** — open Telegram, message [@BotFather](https://t.me/BotFather), run `/newbot`, copy the token.
+2. **Get your Chat ID** — message [@userinfobot](https://t.me/userinfobot) to get your numeric ID.
+3. **Add to `.env`:**
+
+```env
+ALERT_BOT_TOKEN=123456789:ABCdef...   # from @BotFather
+ALERT_CHAT_ID=987654321               # your numeric Telegram user ID
+```
+
+4. **Test:**
+
+```bash
+python3 -c "from src.notifier import send_alert; send_alert('Hello from iEarn.Bot! ✅')"
+```
+
+Leave both variables empty (or unset) to disable alerts entirely.
+
+---
+
 ## 🗂️ Project Structure
 
 ```
@@ -121,6 +154,16 @@ iearnbot/
 ## ⚠️ Disclaimer
 
 This is experimental software. Prediction markets are speculative. Only use funds you can afford to lose entirely. DYOR. Not financial advice.
+
+---
+
+## 📜 Version History
+
+| Version | Highlights |
+|---------|-----------|
+| **v0.1** | Project framework, basic strategies (V1/V2/V3), local Dashboard |
+| **v0.2** | Real Polymarket API integration, security fixes |
+| **v0.3** | Telegram alerts, real P&L dashboard, stop-loss logic |
 
 ---
 

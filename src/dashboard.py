@@ -197,6 +197,40 @@ def index():
     return render_template_string(HTML)
 
 
+def _calc_real_pnl() -> float:
+    """Read all position JSON files and compute total P&L (current_price - entry_price) * size."""
+    pos_dir = BASE / "data" / "positions"
+    if not pos_dir.exists():
+        return 0.0
+    total_pnl = 0.0
+    for pf in pos_dir.glob("*.json"):
+        try:
+            pos = json.loads(pf.read_text())
+            entry = float(pos.get("entry_price", 0))
+            current = float(pos.get("current_price", entry))
+            size = float(pos.get("size", 0))
+            side = pos.get("side", "YES").upper()
+            if side == "YES":
+                total_pnl += (current - entry) * size
+            else:  # NO position: profit when price falls
+                total_pnl += (entry - current) * size
+        except Exception:
+            pass
+    return round(total_pnl, 4)
+
+
+def _count_active_strategies() -> int:
+    """Return count of enabled strategies from state.json; default 2 if file missing."""
+    state_file = BASE / "data" / "strategies" / "state.json"
+    if not state_file.exists():
+        return 2  # V1 + V2 active by default
+    try:
+        state = json.loads(state_file.read_text())
+        return sum(1 for s in state.values() if s.get("enabled"))
+    except Exception:
+        return 2
+
+
 @app.route("/api/status")
 def status():
     try:
@@ -210,11 +244,11 @@ def status():
     pos_dir = BASE / "data" / "positions"
     positions = len(list(pos_dir.glob("*.json"))) if pos_dir.exists() else 0
 
-    state = _load_state()
-    active_strategies = sum(1 for s in state.values() if s.get("enabled"))
+    pnl = _calc_real_pnl()
+    active_strategies = _count_active_strategies()
 
     return jsonify({
-        "pnl": 0.0,
+        "pnl": pnl,
         "positions": positions,
         "active_strategies": active_strategies,
         "skillpay_balance": round(bal, 4),
@@ -250,11 +284,17 @@ def toggle_strategy():
 @app.route("/api/logs")
 def logs():
     log_file = BASE / "data" / "logs" / "bot.log"
+    try:
+        limit = int(request.args.get("limit", 50))
+        limit = max(1, min(limit, 500))  # clamp 1–500
+    except (ValueError, TypeError):
+        limit = 50
     if log_file.exists():
-        lines = log_file.read_text().strip().split("\n")[-30:]
+        raw = log_file.read_text(errors="replace").strip()
+        lines = raw.split("\n")[-limit:] if raw else []
     else:
         lines = ["No logs yet. Bot will write logs here when running."]
-    return jsonify({"lines": lines})
+    return jsonify({"lines": lines, "limit": limit})
 
 
 if __name__ == "__main__":
