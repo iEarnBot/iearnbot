@@ -39,15 +39,18 @@ for cmd in python3.13 python3.12 python3.11 python3; do
 done
 
 if [ -z "$PYTHON" ]; then
-  echo -e "${ORANGE}  Python 3.11+ not found (found $(python3 --version 2>/dev/null || echo 'none'))${RESET}"
-  echo -e "  Installing Python 3.12 via Homebrew..."
-  if ! command -v brew &>/dev/null; then
-    echo -e "${RED}  Homebrew not found. Installing Homebrew first...${RESET}"
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    eval "$(/opt/homebrew/bin/brew shellenv)" 2>/dev/null || eval "$(/usr/local/bin/brew shellenv)" 2>/dev/null || true
-  fi
-  brew install python@3.12
-  PYTHON=python3.12
+  echo -e "${RED}❌ Python 3.11+ not found (found $(python3 --version 2>/dev/null || echo 'none'))${RESET}"
+  echo ""
+  echo -e "  Please install Python 3.12 manually:"
+  echo -e ""
+  echo -e "  Option A — Download pkg installer (easiest):"
+  echo -e "  ${BOLD}https://www.python.org/ftp/python/3.12.0/python-3.12.0-macos11.pkg${RESET}"
+  echo -e ""
+  echo -e "  Option B — Homebrew:"
+  echo -e "  ${BOLD}brew install python@3.12${RESET}"
+  echo -e ""
+  echo -e "  After installing, re-run: ${BOLD}bash setup.sh${RESET}"
+  exit 1
 fi
 
 PY_VERSION=$($PYTHON -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
