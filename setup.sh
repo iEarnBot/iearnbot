@@ -80,7 +80,7 @@ if [ ! -f "$ENV_FILE" ]; then
   echo -e "${ORANGE}  Please enter your configuration:${RESET}"
   echo ""
 
-  read -p "  Polygon Private Key (0x...): " POLY_KEY
+  read -s -p "  Polygon Private Key (0x...): " POLY_KEY; echo ""
   read -p "  SkillPay API Key (sk_...): " SP_KEY
   read -p "  Your User ID (Telegram ID or wallet address): " SP_UID
 
@@ -99,6 +99,12 @@ echo -e "${BOLD}[5/6] Registering auto-start jobs (macOS)...${RESET}"
 LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
 mkdir -p "$LAUNCH_AGENTS"
 
+# Ensure data directories exist (prevent risk.py crash on log write)
+mkdir -p "$INSTALL_DIR/data/logs"
+
+# Resolve full Python path for launchd (env vars not available in launchd context)
+PYTHON_FULL=$(command -v $PYTHON)
+
 # Fast job: every 5 min — take-profit + stop-loss
 cat > "$LAUNCH_AGENTS/bot.iearnbot.fast.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -106,8 +112,7 @@ cat > "$LAUNCH_AGENTS/bot.iearnbot.fast.plist" << PLIST
 <plist version="1.0"><dict>
   <key>Label</key><string>bot.iearnbot.fast</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/bin/env</string>
-    <string>python3</string>
+    <string>$PYTHON_FULL</string>
     <string>$INSTALL_DIR/src/risk.py</string>
   </array>
   <key>StartInterval</key><integer>300</integer>
@@ -123,8 +128,7 @@ cat > "$LAUNCH_AGENTS/bot.iearnbot.mid.plist" << PLIST
 <plist version="1.0"><dict>
   <key>Label</key><string>bot.iearnbot.mid</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/bin/env</string>
-    <string>python3</string>
+    <string>$PYTHON_FULL</string>
     <string>$INSTALL_DIR/src/runner.py</string>
     <string>v2</string><string>v3</string>
   </array>
@@ -141,8 +145,7 @@ cat > "$LAUNCH_AGENTS/bot.iearnbot.v1.plist" << PLIST
 <plist version="1.0"><dict>
   <key>Label</key><string>bot.iearnbot.v1</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/bin/env</string>
-    <string>python3</string>
+    <string>$PYTHON_FULL</string>
     <string>$INSTALL_DIR/src/runner.py</string>
     <string>v1</string>
   </array>

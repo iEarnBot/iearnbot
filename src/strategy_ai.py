@@ -67,16 +67,21 @@ Return ONLY valid JSON, no markdown, no explanation."""
 def generate_strategy(description: str, strategy_num: int = 4) -> dict:
     """
     Generate a trading strategy from a plain-English description.
-    Charges 0.01 USDT via SkillPay before calling the AI.
+    Charges 0.01 USDT via SkillPay before every AI call.
+    If no OPENROUTER_API_KEY is set, returns a helpful notice without charging.
     """
     print(f"\n🤖 Generating strategy: \"{description}\"")
 
+    # ── Early exit if no AI key (do NOT charge) ────────────────────────
+    if not USE_AI:
+        print(
+            "⚠️  No AI key configured. Set OPENROUTER_API_KEY in .env for AI strategy generation.\n"
+            "   Or use SkillPay-powered AI (coming soon)."
+        )
+        return {}
+
     # ── BILLING GATE (must pass before AI call) ────────────────────────
     charge_or_abort()   # exits with top-up link if balance < 0.01 USDT
-
-    if not USE_AI:
-        print("⚠️  No OPENROUTER_API_KEY set — returning template strategy")
-        return _template_strategy(description, strategy_num)
 
     # ── AI CALL ────────────────────────────────────────────────────────
     print(f"   Model: {AI_MODEL}")
