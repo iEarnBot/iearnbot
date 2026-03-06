@@ -1,0 +1,11 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+data/*.log
+data/*.err
+data/v1_positions.json
+data/v2_positions.json
+*.bak
+.DS_Store
