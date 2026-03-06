@@ -35,6 +35,20 @@ cd ~/iearnbot && bash setup.sh
 
 ---
 
+### 🖥️ Desktop App (No Terminal)
+
+Run iEarn.Bot as a native app with a menu-bar / system-tray icon — no terminal required.
+
+- **macOS:** Download `.dmg` → drag to Applications → launch from Spotlight
+- **Windows:** Download `.exe` → run the installer
+
+The tray icon gives you one-click access to:
+▶ Start Bot · ⏹ Stop Bot · 📊 Open Dashboard · 💳 Check Balance
+
+> See [desktop/README_desktop.md](desktop/README_desktop.md) for full installation and build instructions.
+
+---
+
 ## ⚙️ Configuration (.env)
 
 After install, your `.env` file is at `~/iearnbot/.env` (chmod 600):
