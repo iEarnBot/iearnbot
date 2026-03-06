@@ -23,18 +23,35 @@ echo ""
 
 # ── Step 1: Python ─────────────────────────────────────────────
 echo -e "${BOLD}[1/6] Checking Python...${RESET}"
-if ! command -v python3 &>/dev/null; then
-  echo -e "${RED}❌ Python 3 not found. Install from https://python.org${RESET}"
-  exit 1
+
+# Try to find python 3.11+
+PYTHON=""
+for cmd in python3.13 python3.12 python3.11 python3; do
+  if command -v $cmd &>/dev/null; then
+    VER=$($cmd -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+    MAJ=$(echo $VER | cut -d. -f1)
+    MIN=$(echo $VER | cut -d. -f2)
+    if [ "$MAJ" -ge 3 ] && [ "$MIN" -ge 11 ]; then
+      PYTHON=$cmd
+      break
+    fi
+  fi
+done
+
+if [ -z "$PYTHON" ]; then
+  echo -e "${ORANGE}  Python 3.11+ not found (found $(python3 --version 2>/dev/null || echo 'none'))${RESET}"
+  echo -e "  Installing Python 3.12 via Homebrew..."
+  if ! command -v brew &>/dev/null; then
+    echo -e "${RED}  Homebrew not found. Installing Homebrew first...${RESET}"
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    eval "$(/opt/homebrew/bin/brew shellenv)" 2>/dev/null || eval "$(/usr/local/bin/brew shellenv)" 2>/dev/null || true
+  fi
+  brew install python@3.12
+  PYTHON=python3.12
 fi
-PY_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
-PY_MAJOR=$(echo $PY_VERSION | cut -d. -f1)
-PY_MINOR=$(echo $PY_VERSION | cut -d. -f2)
-if [ "$PY_MAJOR" -lt 3 ] || ([ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 11 ]); then
-  echo -e "${RED}❌ Python 3.11+ required (found $PY_VERSION)${RESET}"
-  exit 1
-fi
-echo -e "${GREEN}✅ Python $PY_VERSION${RESET}"
+
+PY_VERSION=$($PYTHON -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+echo -e "${GREEN}✅ Python $PY_VERSION ($PYTHON)${RESET}"
 
 # ── Step 2: uv ─────────────────────────────────────────────────
 echo -e "${BOLD}[2/6] Checking uv package manager...${RESET}"
@@ -48,7 +65,7 @@ echo -e "${GREEN}✅ uv $(uv --version 2>/dev/null | head -1)${RESET}"
 # ── Step 3: Dependencies ────────────────────────────────────────
 echo -e "${BOLD}[3/6] Installing dependencies...${RESET}"
 cd "$INSTALL_DIR"
-uv pip install -r requirements.txt --quiet
+$PYTHON -m pip install -r requirements.txt --quiet
 echo -e "${GREEN}✅ Dependencies installed${RESET}"
 
 # ── Step 4: .env setup ─────────────────────────────────────────
@@ -86,7 +103,8 @@ cat > "$LAUNCH_AGENTS/bot.iearnbot.fast.plist" << PLIST
 <plist version="1.0"><dict>
   <key>Label</key><string>bot.iearnbot.fast</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/bin/python3</string>
+    <string>/usr/bin/env</string>
+    <string>python3</string>
     <string>$INSTALL_DIR/src/risk.py</string>
   </array>
   <key>StartInterval</key><integer>300</integer>
@@ -102,7 +120,8 @@ cat > "$LAUNCH_AGENTS/bot.iearnbot.mid.plist" << PLIST
 <plist version="1.0"><dict>
   <key>Label</key><string>bot.iearnbot.mid</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/bin/python3</string>
+    <string>/usr/bin/env</string>
+    <string>python3</string>
     <string>$INSTALL_DIR/src/runner.py</string>
     <string>v2</string><string>v3</string>
   </array>
@@ -119,7 +138,8 @@ cat > "$LAUNCH_AGENTS/bot.iearnbot.v1.plist" << PLIST
 <plist version="1.0"><dict>
   <key>Label</key><string>bot.iearnbot.v1</string>
   <key>ProgramArguments</key><array>
-    <string>/usr/bin/python3</string>
+    <string>/usr/bin/env</string>
+    <string>python3</string>
     <string>$INSTALL_DIR/src/runner.py</string>
     <string>v1</string>
   </array>
@@ -137,7 +157,7 @@ echo -e "${GREEN}✅ launchd jobs registered (fast/mid/v1)${RESET}"
 
 # ── Step 6: Dashboard ──────────────────────────────────────────
 echo -e "${BOLD}[6/6] Starting Dashboard...${RESET}"
-python3 "$INSTALL_DIR/src/dashboard.py" &
+$PYTHON "$INSTALL_DIR/src/dashboard.py" &
 sleep 2
 echo -e "${GREEN}✅ Dashboard started → http://localhost:7799${RESET}"
 
