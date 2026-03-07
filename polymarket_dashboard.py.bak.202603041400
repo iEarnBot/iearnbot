@@ -1,0 +1,1151 @@
+#!/usr/bin/env python3
+"""iEarn.Bot Dashboard v0.1 — http://localhost:7799"""
+import json, os, subprocess, time, urllib.request, urllib.parse, pathlib, re
+import concurrent.futures, threading
+from datetime import datetime, timezone, timedelta
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from collections import defaultdict
+
+PORT     = 7799
+MY_ADDR  = '0x2c6c1BF553A72d2d17f560FdeD8287b28659DeB8'
+POLYCLAW = pathlib.Path.home() / '.openclaw/skills/polyclaw'
+WS       = pathlib.Path.home() / '.openclaw/workspace'
+PARAMS_F = WS / 'polymarket_params.json'
+STATS_F  = WS / 'polymarket_stats.json'
+LOG_F    = WS / 'polymarket_bot.log'
+STOP_F   = WS / 'polymarket_stop.flag'
+REVIEW_F = WS / 'polymarket_review.json'
+TRACE_F  = WS / 'polymarket_v3_trace.json'
+V3ACC_F  = WS / 'polymarket_v3sg_accounts.json'
+STRATS_F = WS / 'polymarket_strategies.json'
+TP_F     = WS / 'polymarket_tp_config.json'
+
+_cache = {}; _cache_ts = {}
+_bal_cache = [0.0, 0.0]
+
+# ─── 网络 ──────────────────────────────────────────────────────────────────────
+def fetch(url, ttl=25):
+    now = time.time()
+    if url in _cache and now - _cache_ts.get(url, 0) < ttl: return _cache[url]
+    try:
+        req  = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        data = json.loads(urllib.request.urlopen(req, timeout=9).read())
+        _cache[url] = data; _cache_ts[url] = now; return data
+    except: return _cache.get(url, [])
+
+def get_balance():
+    now = time.time()
+    if now - _bal_cache[1] < 60: return _bal_cache[0]
+    try:
+        env = {}
+        ef = POLYCLAW / '.env'
+        if ef.exists():
+            for line in ef.read_text().splitlines():
+                if '=' in line and not line.startswith('#'):
+                    k, v = line.split('=', 1); env[k.strip()] = v.strip()
+        pk  = os.environ.get('POLYCLAW_PRIVATE_KEY') or env.get('POLYCLAW_PRIVATE_KEY', '')
+        rpc = os.environ.get('CHAINSTACK_NODE') or env.get('CHAINSTACK_NODE', '')
+        if not pk or not rpc: return _bal_cache[0]
+        from web3 import Web3; from eth_account import Account
+        w3   = Web3(Web3.HTTPProvider(rpc, request_kwargs={'timeout': 5}))
+        addr = Account.from_key(pk).address
+        USDC_E = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'
+        abi = [{"inputs":[{"name":"account","type":"address"}],"name":"balanceOf",
+                "outputs":[{"name":"","type":"uint256"}],"stateMutability":"view","type":"function"}]
+        bal = w3.eth.contract(address=w3.to_checksum_address(USDC_E), abi=abi).functions.balanceOf(addr).call() / 1e6
+        _bal_cache[0] = bal; _bal_cache[1] = now; return bal
+    except: return _bal_cache[0]
+
+def get_jobs():
+    try:
+        r = subprocess.run(['launchctl','list'], capture_output=True, text=True, timeout=5)
+        j = {}
+        for nm in ['fast','mid','v1']:
+            for ln in r.stdout.splitlines():
+                if f'com.polymarket.{nm}' in ln:
+                    pts = ln.split(); j[nm] = {'run': pts[0]!='-', 'pid': pts[0], 'exit': pts[1]}
+        return j
+    except: return {}
+
+# ─── 持久化 ────────────────────────────────────────────────────────────────────
+def load_params():
+    if PARAMS_F.exists():
+        try: return json.load(open(PARAMS_F))
+        except: pass
+    return {'v1_enabled':True,'v2_enabled':True,'v3_enabled':True,'fast_enabled':True,
+            'bet_v1':5.0,'bet_v2_base':5.0,'bet_v3_base':5.0,
+            'min_price':0.40,'max_price':0.88,'min_liquidity':20000,
+            'disabled_market_types':['Football','Other'],'boosted_market_types':[]}
+def save_params(p): json.dump(p, open(PARAMS_F,'w'), indent=2)
+
+def load_stats():
+    if STATS_F.exists():
+        try: return json.load(open(STATS_F))
+        except: pass
+    return {'settled_bets':[],'market_type_stats':{},'clob_stats':{}}
+
+def load_review():
+    if REVIEW_F.exists():
+        try: return json.load(open(REVIEW_F))
+        except: pass
+    return {'user_notes':'','evolutions':[]}
+def save_review(r): json.dump(r, open(REVIEW_F,'w'), indent=2, ensure_ascii=False)
+
+def load_tp():
+    if TP_F.exists():
+        try: return json.load(open(TP_F))
+        except: pass
+    return {
+        'tp_enabled': True, 'sl_enabled': True,
+        'tp_threshold': 0.75,
+        'tp_partial': 0.5,
+        'sl_threshold': 0.20,
+        'sl_full': True,
+        'sl_time_limit': 4320,
+        'tp_redeem_trigger': 0.92,
+        'user_notes': '',
+        'evolutions': []
+    }
+def save_tp(cfg): json.dump(cfg, open(TP_F,'w'), indent=2)
+
+def load_strategies():
+    if STRATS_F.exists():
+        try: return json.load(open(STRATS_F))
+        except: pass
+    return []
+def save_strategies(s): json.dump(s, open(STRATS_F,'w'), indent=2, ensure_ascii=False)
+
+def is_stopped(): return STOP_F.exists()
+def set_stop(v):
+    if v: STOP_F.write_text(datetime.now().isoformat())
+    elif STOP_F.exists(): STOP_F.unlink()
+
+# ─── 分类 ──────────────────────────────────────────────────────────────────────
+def classify(t):
+    t = t.lower()
+    if 'bitcoin' in t or 'btc' in t: return 'BTC'
+    if 'solana' in t or 'sol ' in t: return 'SOL'
+    if any(x in t for x in ['cavaliers','lakers','celtics','bucks','rockets','thunder','nuggets',
+        'pistons','timberwolves','76ers','clippers','pelicans','kings','hawks','pacers',
+        'nets','wizards','jazz','grizzlies','heat','knicks','spurs']): return 'NBA'
+    if any(x in t for x in ['blackhawks','wild','blues','flames','stars','canucks','ducks','jets',
+        'sharks','panthers','hurricanes','rangers','red wings','predators','kraken',
+        'golden knights','avalanche','lightning']): return 'NHL'
+    if any(x in t for x in ['real madrid','barcelona','arsenal','chelsea','bologna','benfica',
+        'everton','newcastle','manchester','milan','atletico','laliga','premier','fc ','cup']): return 'Football'
+    if any(x in t for x in ['counter-strike','cs2','esport','valorant','dota','league of']): return 'Esports'
+    return 'Other'
+
+# ─── 账本 ──────────────────────────────────────────────────────────────────────
+def build_ledger(activity):
+    by_cid = defaultdict(lambda: {'splits':[],'sells':[],'redeems':[],'title':'','outcome':'','mtype':''})
+    for t in activity:
+        cid = t.get('conditionId','')
+        if not cid: continue
+        if t.get('title'):   by_cid[cid]['title']   = t['title']
+        if t.get('outcome'): by_cid[cid]['outcome']  = t['outcome']
+        by_cid[cid]['mtype'] = classify(t.get('title',''))
+        tp = t.get('type','')
+        if tp == 'SPLIT':   by_cid[cid]['splits'].append(t)
+        elif tp == 'TRADE' and t.get('side') == 'SELL': by_cid[cid]['sells'].append(t)
+        elif tp == 'REDEEM': by_cid[cid]['redeems'].append(t)
+    ledger = []
+    for cid, d in by_cid.items():
+        inv = sum(float(s.get('usdcSize') or 0) for s in d['splits'])
+        tp_r = sum(float(s.get('usdcSize') or 0) for s in d['sells'])
+        rdm_r = sum(float(s.get('usdcSize') or 0) for s in d['redeems'])
+        ret = tp_r + rdm_r
+        if inv < 0.01: continue
+        pnl = ret - inv
+        if rdm_r > 0: status = 'win'
+        elif tp_r > 0 and pnl > 0: status = 'tp'
+        elif tp_r > 0: status = 'sl'
+        elif ret == 0: status = 'open'
+        else: status = 'partial'
+        entry_ts = min((t.get('timestamp', 9e9) for t in d['splits']), default=0)
+        last_ts  = max((t.get('timestamp', 0) for t in d['splits']+d['sells']+d['redeems']), default=0)
+        ledger.append({'cid':cid,'title':d['title'][:46],'outcome':d['outcome'],'mtype':d['mtype'],
+            'invested':inv,'returned':ret,'pnl':pnl,'status':status,'entry_ts':entry_ts,'ts':last_ts})
+    return sorted(ledger, key=lambda x: -x['ts'])
+
+def build_daily(ledger):
+    days = defaultdict(lambda: {'in':0,'out':0,'win':0,'lose':0,'cnt':0})
+    for it in ledger:
+        if it['status'] == 'open': continue
+        ts = it.get('entry_ts') or it.get('ts', 0)
+        if not ts: continue
+        day = datetime.fromtimestamp(ts).strftime('%Y-%m-%d')
+        days[day]['in'] += it['invested']; days[day]['out'] += it['returned']; days[day]['cnt'] += 1
+        if it['status'] == 'win': days[day]['win'] += 1
+        elif it['status'] in ('sl','partial'): days[day]['lose'] += 1
+    return sorted(days.items(), reverse=True)
+
+def build_type_pnl(ledger):
+    ts = defaultdict(lambda: {'in':0,'out':0,'cnt':0,'win':0,'lose':0})
+    for it in ledger:
+        mt = it['mtype']
+        ts[mt]['in'] += it['invested']; ts[mt]['out'] += it['returned']; ts[mt]['cnt'] += 1
+        if it['status'] == 'win': ts[mt]['win'] += 1
+        elif it['status'] in ('sl','partial','open') and it['returned'] == 0: ts[mt]['lose'] += 1
+    return dict(ts)
+
+def analyze_positions(pos_list):
+    now = datetime.now(timezone.utc)
+    pw, aw, am, al = [], [], [], []
+    for p in pos_list:
+        price = float(p.get('curPrice') or 0); size = float(p.get('size') or 0)
+        val   = float(p.get('currentValue') or 0)
+        if size < 0.05 and val < 0.05: continue
+        try:
+            end = p.get('endDate','').replace('Z','+00:00')
+            if 'T' not in end: end += 'T23:59:00+00:00'
+            mins = (datetime.fromisoformat(end) - now).total_seconds() / 60
+        except: mins = 9999
+        cost = size * float(p.get('avgPrice') or 0.5)
+        item = {'title':p.get('title','')[:44],'outcome':p.get('outcome',''),'price':price,
+                'size':size,'val':val,'cost':cost,'pnl_est':val-cost,'mins':mins,
+                'redeemable':p.get('redeemable',False),'mtype':classify(p.get('title',''))}
+        if mins < 0:
+            if price > 0.88: pw.append(item)
+        elif price >= 0.65: aw.append(item)
+        elif price >= 0.40: am.append(item)
+        else: al.append(item)
+    return pw, aw, am, al
+
+def parse_finance_log():
+    events = []
+    if not LOG_F.exists(): return events
+    lines = LOG_F.read_text(errors='replace').splitlines()
+    for ln in reversed(lines[-1500:]):
+        ln = ln.strip()
+        if not ln: continue
+        ts = ''
+        m = re.search(r'\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\]', ln)
+        if m: ts = m.group(1)[11:]
+        else:
+            m2 = re.search(r'\[(\d{2}:\d{2}:\d{2})\]', ln)
+            if m2: ts = m2.group(1)
+        if '✅ 成功' in ln and any(x in ln for x in ['V1','V2','V3','下注','买入']):
+            m3 = re.search(r'\|\s*(.+)', ln)
+            events.append({'type':'buy_ok','ts':ts,'icon':'🟢','label':'跟单买入成功','detail': m3.group(1).strip()[:50] if m3 else ''})
+        elif '止盈' in ln and '✅' in ln:
+            m6 = re.search(r'收回\$([\d.]+)', ln)
+            events.append({'type':'tp','ts':ts,'icon':'💚','label':f'止盈成功 {("收回$"+m6.group(1)) if m6 else ""}','detail':''})
+        elif '止损回收' in ln:
+            m7 = re.search(r'亏\$([\d.]+) 回收\$([\d.]+)', ln)
+            if m7: events.append({'type':'sl','ts':ts,'icon':'🔶','label':f'止损回收 亏${m7.group(1)}','detail':f'回收${m7.group(2)}'})
+        elif '卖出失败' in ln:
+            events.append({'type':'sell_fail','ts':ts,'icon':'🔴','label':'卖单失败','detail':'流动性不足或对冲锁死'})
+        elif 'MERGE' in ln and '成功' in ln:
+            m8 = re.search(r'回收\$([\d.]+)', ln)
+            events.append({'type':'merge','ts':ts,'icon':'🔄','label':f'对冲合并 {("回收$"+m8.group(1)) if m8 else ""}','detail':''})
+        elif '赎回' in ln and ('成功' in ln or '✅' in ln):
+            m9 = re.search(r'~?\$([\d.]+)', ln)
+            events.append({'type':'redeem','ts':ts,'icon':'💰','label':f'赎回到账 {("$"+m9.group(1)) if m9 else ""}','detail':''})
+        elif '余额不足' in ln:
+            events.append({'type':'skip','ts':ts,'icon':'⚪','label':'余额不足','detail':''})
+        if len(events) >= 80: break
+    return events[:60]
+
+
+# ─── 动作处理 ─────────────────────────────────────────────────────────────────
+
+WALLET_F = WS / 'iearndot_wallet.json'
+PAY_F    = WS / 'iearndot_payment.json'
+
+def load_wallet():
+    if WALLET_F.exists():
+        try: return json.load(open(WALLET_F))
+        except: pass
+    return {'profit_wallet':'','profit_threshold':20.0,'profit_auto':'off'}
+def save_wallet(w): json.dump(w, open(WALLET_F,'w'), indent=2)
+
+def load_payment():
+    if PAY_F.exists():
+        try: return json.load(open(PAY_F))
+        except: pass
+    return {'skillpay_key':'','skillpay_price':0.01,'x402_enabled':'off','x402_wallet':'','x402_price':0.005}
+def save_payment(cfg): json.dump(cfg, open(PAY_F,'w'), indent=2)
+
+def do_action(act, qp):
+    p = load_params(); rev = load_review(); tp = load_tp(); strats = load_strategies()
+    if act == 'stop_bot':
+        set_stop(True)
+        for nm in ['fast','mid','v1']:
+            subprocess.run(['launchctl','stop',f'com.polymarket.{nm}'], capture_output=True)
+        return '⏸ 机器人已停止'
+    if act == 'start_bot':
+        set_stop(False); subprocess.run(['launchctl','start','com.polymarket.mid'], capture_output=True)
+        return '▶️ 机器人已重启'
+    if act == 'run_fast': subprocess.run(['launchctl','start','com.polymarket.fast']); return '✅ 止盈扫描已触发'
+    if act == 'run_mid':  subprocess.run(['launchctl','start','com.polymarket.mid']);  return '✅ 跟单扫描已触发'
+    if act == 'run_v1':   subprocess.run(['launchctl','start','com.polymarket.v1']);   return '✅ V1 BTC已触发'
+    if act == 'redeem':
+        s = WS / 'polymarket_redeem.py'
+        if s.exists(): subprocess.Popen(['uv','run','python',str(s)], cwd=POLYCLAW)
+        return '✅ 赎回已启动'
+    if act == 'merge_hedges':
+        s = WS / 'polymarket_take_profit.py'
+        if s.exists(): subprocess.Popen(['uv','run','python',str(s),'--merge-only'], cwd=POLYCLAW)
+        return '✅ 对冲检测已启动'
+    if act == 'refresh_trace':
+        s = WS / 'polymarket_v3_tracker.py'
+        if s.exists(): subprocess.Popen(['uv','run','python',str(s)], cwd=POLYCLAW)
+        return '✅ V3追踪刷新中（约30秒）'
+    for k in ['v1','v2','v3','fast']:
+        if act == f'toggle_{k}':
+            p[f'{k}_enabled'] = not p.get(f'{k}_enabled', True); save_params(p)
+            return f'{"✅ 已启用" if p[f"{k}_enabled"] else "⏸ 已暂停"} {k.upper()}'
+    if act == 'disable_mtype':
+        mt = qp.get('mtype',''); dis = p.get('disabled_market_types',[])
+        if mt and mt not in dis: dis.append(mt); p['disabled_market_types'] = dis; save_params(p)
+        return f'✅ 已禁用 {mt}'
+    if act == 'enable_mtype':
+        mt = qp.get('mtype','')
+        p['disabled_market_types'] = [x for x in p.get('disabled_market_types',[]) if x != mt]
+        save_params(p); return f'✅ 已启用 {mt}'
+    if act == 'save_params':
+        for k in ['bet_v1','bet_v2_base','bet_v3_base','min_price','max_price','min_liquidity']:
+            if k in qp:
+                try: p[k] = float(qp[k])
+                except: pass
+        save_params(p); return '✅ 参数已保存'
+    if act == 'save_tp':
+        for k in ['tp_threshold','tp_partial','sl_threshold','sl_time_limit','tp_redeem_trigger']:
+            if k in qp:
+                try: tp[k] = float(qp[k])
+                except: pass
+        tp['tp_enabled'] = qp.get('tp_enabled','1') == '1'
+        tp['sl_enabled'] = qp.get('sl_enabled','1') == '1'
+        tp['sl_full']    = qp.get('sl_full','1') == '1'
+        if 'tp_notes' in qp: tp['user_notes'] = qp['tp_notes']
+        save_tp(tp); return '✅ 止盈止损配置已保存'
+    if act == 'evolve_tp':
+        notes = qp.get('tp_notes','').strip()
+        stats = load_stats(); bets = stats.get('settled_bets',[])
+        win_rate = sum(1 for b in bets if b.get('won')) / len(bets) if bets else 0
+        if win_rate < 0.40:
+            tp['sl_threshold'] = min(tp.get('sl_threshold',0.20) + 0.05, 0.35)
+            tp['sl_time_limit'] = max(tp.get('sl_time_limit',4320) - 720, 1440)
+        elif win_rate > 0.60:
+            tp['tp_threshold'] = max(tp.get('tp_threshold',0.75) - 0.05, 0.65)
+        if notes:
+            tp.setdefault('evolutions',[]).append({'ts':datetime.now().isoformat(),'note':notes,'win_rate':win_rate})
+            tp['user_notes'] = notes
+        save_tp(tp); return f'🧬 进化完成（胜率 {win_rate:.0%}，止损线→{tp["sl_threshold"]:.0%}）'
+    if act == 'evolve_review':
+        notes = qp.get('review_notes','').strip()
+        if notes: rev.setdefault('evolutions',[]).append({'ts':datetime.now().isoformat(),'note':notes}); rev['user_notes'] = notes
+        p['disabled_market_types'] = ['Football','Other','NBA']
+        p['min_liquidity'] = max(p.get('min_liquidity',20000), 20000)
+        p['min_price'] = 0.40; save_params(p)
+        if notes: save_review(rev)
+        s = WS / 'polymarket_evolution.py'
+        if s.exists(): subprocess.Popen(['uv','run','python',str(s)], cwd=POLYCLAW)
+        return '🧬 进化启动：禁用Football/NBA/Other，提高流动性要求$20K'
+    if act == 'save_review':
+        notes = qp.get('review_notes','').strip()
+        if notes: rev['user_notes'] = notes; save_review(rev)
+        return '✅ 意见已保存'
+    if act == 'add_strategy':
+        name  = qp.get('strat_name','').strip()[:12]
+        desc  = qp.get('strat_desc','').strip()
+        links = qp.get('strat_links','').strip()
+        addr  = qp.get('strat_addr','').strip()
+        links_list = [x.strip() for x in re.split(r'[\s,]+', links) if x.strip()]
+        addrs_list = [x.strip() for x in re.split(r'[\s,]+', addr) if x.strip()]
+        user_note = qp.get('strat_note','').strip()
+        if not desc: return '❌ 请填写策略说明'
+        existing_codes = [s.get('code','') for s in strats]; max_v = 3
+        for c in existing_codes:
+            m = re.match(r'V(\d+)', c)
+            if m: max_v = max(max_v, int(m.group(1)))
+        code = f'V{max_v+1}'
+        auto_analysis = _analyze_strategy_input(desc, links_list, addrs_list)
+        strat = {'code':code,'name':name or f'{code}自定义','submitted_at':datetime.now().isoformat(),
+            'generated_at':datetime.now().isoformat(),'source_desc':desc,
+            'source_links':'\n'.join(links_list),'source_addr':'\n'.join(addrs_list),
+            'user_note':user_note,'analysis':auto_analysis,'enabled':False,'status':'pending'}
+        strats.append(strat); save_strategies(strats)
+        return f'✅ 策略 {code}《{strat["name"]}》已生成'
+    if act == 'toggle_custom':
+        code = qp.get('code','')
+        for s in strats:
+            if s.get('code') == code: s['enabled'] = not s.get('enabled',False); s['status'] = 'active' if s['enabled'] else 'paused'; break
+        save_strategies(strats); return '✅ 已切换'
+    if act == 'apply_template':
+        tpl = qp.get('tpl','')
+        def _add_tpl(name, desc, analysis):
+            ec = [s.get('code','') for s in strats]; mv = 3
+            for c in ec:
+                m = re.match(r'V(\d+)', c)
+                if m: mv = max(mv, int(m.group(1)))
+            strats.append({'code':f'V{mv+1}','name':name,'submitted_at':datetime.now().isoformat(),
+                'generated_at':datetime.now().isoformat(),'source_desc':desc,'source_links':'','source_addr':'',
+                'user_note':'官方模板一键应用','analysis':analysis,'enabled':True,'status':'active'})
+            save_strategies(strats)
+        if tpl == '1':
+            p['min_price']=0.40;p['max_price']=0.75;p['bet_v1']=5;p['v1_enabled']=True;save_params(p)
+            _add_tpl('BTC趋势模板','官方BTC趋势跟随模板，4h均线上穿入场',
+                '市场类型: 加密货币（BTC/ETH）\n入场条件: 4h均线上穿\n止盈线: 0.75\n止损线: 0.25')
+            return '✅ 模板已应用：BTC趋势模板'
+        elif tpl == '2':
+            p['min_price']=0.45;p['max_price']=0.78;save_params(p)
+            _add_tpl('电竞大赛模板','CS2/Valorant Major赛前2h入场',
+                '市场类型: 电竞（CS2/Valorant）\n入场时机: Major赛前2小时\n价格区间: 0.45-0.65\n止盈线: 0.78')
+            return '✅ 模板已应用：电竞大赛模板'
+        elif tpl == '3':
+            _add_tpl('高胜率跟单模板','跟踪Polymarket榜单前10',
+                '市场类型: 综合\n跟单对象: Polymarket榜单前10名\n条件: 近30天胜率>60%\n单注: $5')
+            return '✅ 模板已应用：高胜率跟单模板'
+        return '❌ 未知模板编号'
+    if act == 'save_wallet_config':
+        w = load_wallet()
+        w['profit_wallet'] = qp.get('profit_wallet','').strip()
+        try: w['profit_threshold'] = float(qp.get('profit_threshold', 20))
+        except: pass
+        w['profit_auto'] = qp.get('profit_auto','off')
+        save_wallet(w); return '✅ 安全钱包配置已保存'
+    if act == 'save_payment_config':
+        cfg = load_payment()
+        cfg['skillpay_key'] = qp.get('skillpay_key','').strip()
+        try: cfg['skillpay_price'] = float(qp.get('skillpay_price', 0.01))
+        except: pass
+        cfg['x402_enabled'] = qp.get('x402_enabled','off')
+        cfg['x402_wallet'] = qp.get('x402_wallet','').strip()
+        try: cfg['x402_price'] = float(qp.get('x402_price', 0.005))
+        except: pass
+        save_payment(cfg); return '✅ 支付配置已保存'
+    return ''
+
+
+def _analyze_strategy_input(desc, links_list, addrs_list):
+    lines = []; desc_l = desc.lower()
+    links_list = links_list or []; addrs_list = addrs_list or []
+    if 'btc' in desc_l or 'bitcoin' in desc_l:
+        lines.append('市场类型: 加密货币（BTC/ETH）'); lines.append('建议: 仅在24h涨幅>2%时开仓')
+    elif 'nba' in desc_l or 'basketball' in desc_l:
+        lines.append('市场类型: NBA篮球'); lines.append('风险提示: 历史胜率28%，需结合伤病报告')
+    elif any(x in desc_l for x in ['soccer','football','premier','laliga']):
+        lines.append('市场类型: 足球'); lines.append('风险提示: 历史胜率8%，控制注额≤$3')
+    elif any(x in desc_l for x in ['esport','cs2','valorant','dota']):
+        lines.append('市场类型: 电竞'); lines.append('建议: 历史胜率60%，每注≤$8')
+    else:
+        lines.append('市场类型: 其他（需人工确认）')
+    if addrs_list:
+        lines.append(f'跟单地址: {len(addrs_list)}个')
+        for a in addrs_list[:4]: lines.append(f'  - {a[:20]}')
+    pm_profiles = [u for u in links_list if 'polymarket.com/@' in u]
+    if pm_profiles:
+        lines.append(f'Polymarket Profiles: {len(pm_profiles)}个')
+        for u in pm_profiles[:4]: lines.append(f'  - {u}')
+    if links_list: lines.append(f'参考链接: 已记录 {len(links_list)}个')
+    if '止损' in desc or 'stop loss' in desc_l: lines.append('✅ 止损: 已提及，将设置止损线35%')
+    if '跟单' in desc or 'copy' in desc_l: lines.append('📋 跟单: 监控目标地址，延迟<15min跟入')
+    lines.append(f'--- 生成时间: {datetime.now().strftime("%Y-%m-%d %H:%M")} ---')
+    return '\n'.join(lines)
+
+
+def get_data():
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        f_pos  = ex.submit(fetch, f'https://data-api.polymarket.com/positions?user={MY_ADDR}&sizeThreshold=0&limit=100')
+        f_act  = ex.submit(fetch, f'https://data-api.polymarket.com/activity?user={MY_ADDR}&limit=500', 30)
+        f_bal  = ex.submit(get_balance)
+        f_jobs = ex.submit(get_jobs)
+        try: pos = f_pos.result(timeout=10)
+        except: pos = []
+        try: activity = f_act.result(timeout=10)
+        except: activity = []
+        try: balance = f_bal.result(timeout=8)
+        except: balance = 0.0
+        try: jobs = f_jobs.result(timeout=5)
+        except: jobs = {}
+    params = load_params(); stats = load_stats(); review = load_review()
+    tp_cfg = load_tp(); strats = load_strategies()
+    wallet = load_wallet(); payment = load_payment()
+    ledger = build_ledger(activity); fin_log = parse_finance_log()
+    pw, aw, am, al = analyze_positions(pos)
+    daily = build_daily(ledger); type_pnl = build_type_pnl(ledger)
+    splits  = [t for t in activity if t.get('type')=='SPLIT']
+    redeems = [t for t in activity if t.get('type')=='REDEEM']
+    sells   = [t for t in activity if t.get('type')=='TRADE' and t.get('side')=='SELL']
+    total_in  = sum(float(t.get('usdcSize') or 0) for t in splits)
+    total_rdm = sum(float(t.get('usdcSize') or 0) for t in redeems)
+    total_sell = sum(float(t.get('usdcSize') or 0) for t in sells)
+    bets = stats.get('settled_bets',[])
+    v3_trace = []
+    if TRACE_F.exists():
+        try: v3_trace = json.load(open(TRACE_F))
+        except: pass
+    accts = []
+    if V3ACC_F.exists():
+        try: accts = json.load(open(V3ACC_F))
+        except: pass
+    return dict(
+        balance=balance, pw=pw, aw=aw, am=am, al=al,
+        pending_amt=sum(p['size'] for p in pw), active_val=sum(p['val'] for p in aw+am+al),
+        total_in=total_in, total_out=total_rdm+total_sell,
+        total_rdm=total_rdm, total_sell=total_sell, pnl_all=total_rdm+total_sell-total_in,
+        params=params, stats=stats, jobs=jobs, ledger=ledger, fin_log=fin_log,
+        daily=daily, type_pnl=type_pnl, settled_n=len(bets),
+        won_n=sum(1 for b in bets if b.get('won')),
+        accts=accts, v3_trace=v3_trace, review=review, tp_cfg=tp_cfg, strats=strats,
+        wallet=wallet, payment=payment,
+        disabled=params.get('disabled_market_types',[]),
+        stopped=is_stopped(), now=datetime.now().strftime('%H:%M:%S'),
+    )
+
+
+CSS = r'''
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;background:#0b0d14;color:#e0e0e0;font-size:13px}
+a{color:inherit;text-decoration:none}
+.hdr{background:#13162a;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #1e2235;position:sticky;top:0;z-index:200}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-icon{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,#059669,#34d399);display:flex;align-items:center;justify-content:center;font-weight:900;font-size:13px;color:#fff;flex-shrink:0;letter-spacing:-.5px}
+.logo-name{font-size:16px;font-weight:800;color:#34d399;letter-spacing:-.3px;line-height:1}
+.logo-sub{font-size:10px;color:#555;margin-top:2px}
+.tabs{display:flex;background:#0e1020;border-bottom:2px solid #1e2235;padding:0 20px;overflow-x:auto;flex-wrap:nowrap}
+.tab{padding:9px 15px;cursor:pointer;color:#555;font-size:12px;font-weight:600;border-bottom:2px solid transparent;margin-bottom:-2px;transition:.15s;white-space:nowrap;user-select:none}
+.tab:hover{color:#aaa}.tab.active{color:#818cf8;border-bottom-color:#818cf8}
+.page{display:none;padding:14px 20px}.page.active{display:block}
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:9px;margin-bottom:12px}
+.kpi{background:#13162a;border-radius:9px;padding:12px 14px;border:1px solid #1e2235}
+.kpi h4{font-size:10px;color:#444;text-transform:uppercase;letter-spacing:.7px;margin-bottom:7px}
+.kpi .v{font-size:22px;font-weight:800;letter-spacing:-1px}
+.kpi .sub{color:#444;font-size:11px;margin-top:3px}
+.g{color:#34d399}.y{color:#fbbf24}.r{color:#f87171}.b{color:#60a5fa}.pu{color:#a78bfa}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.card{background:#13162a;border-radius:9px;padding:13px;border:1px solid #1e2235;margin-bottom:11px}
+.card h3{font-size:12px;color:#888;margin-bottom:9px;padding-left:7px;border-left:3px solid #818cf8}
+table{width:100%;border-collapse:collapse}
+th{background:#1a1e30;padding:6px 8px;text-align:left;font-size:10px;color:#555;text-transform:uppercase;font-weight:700}
+td{padding:6px 8px;border-bottom:1px solid #0f1117;font-size:12px;vertical-align:middle}
+tr:last-child td{border:none}tr:hover>td{background:#1a1e30}
+.btn{display:inline-flex;align-items:center;gap:4px;padding:5px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;border:none;margin:2px;transition:.12s;text-decoration:none}
+.btn-p{background:#4338ca;color:#fff}.btn-g{background:#14532d;color:#4ade80}
+.btn-r{background:#7f1d1d;color:#fca5a5}.btn-gray{background:#1e2235;color:#888}
+.btn-o{background:#7c2d12;color:#fed7aa}.btn-pu{background:#3b0764;color:#e9d5ff}
+.badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:10px;font-size:11px;font-weight:600}
+.bdg{background:#1a1e30;color:#888}.bdgg{background:#14532d;color:#4ade80}.bdgy{background:#713f12;color:#fbbf24}
+.bdgr{background:#7f1d1d;color:#fca5a5}.bdgb{background:#1e3a5f;color:#60a5fa}.bdgp{background:#2e1065;color:#a78bfa}
+.pnl-pos{color:#34d399;font-weight:700}.pnl-neg{color:#f87171;font-weight:700}
+.alert{background:#431407;border:1px solid #7c2d12;border-radius:8px;padding:10px 14px;margin-bottom:8px;color:#fdba74;display:flex;align-items:center;gap:10px}
+.info{background:#1e3a5f22;border:1px solid #1e3a5f;border-radius:8px;padding:10px 14px;margin-bottom:8px;color:#93c5fd;display:flex;align-items:center;gap:10px}
+.ok{background:#14532d22;border:1px solid #166534;border-radius:8px;padding:10px 14px;margin-bottom:8px;color:#4ade80;display:flex;align-items:center;gap:10px}
+.dot-on{width:7px;height:7px;border-radius:50%;background:#34d399;display:inline-block;animation:pulse 2s infinite;margin-right:3px}
+.dot-off{width:7px;height:7px;border-radius:50%;background:#333;display:inline-block;margin-right:3px}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.sh{font-size:12px;color:#818cf8;font-weight:700;margin:12px 0 7px;padding-bottom:3px;border-bottom:1px solid #1e2235}
+textarea,input[type=text],input[type=url],input[type=password]{font-family:inherit;background:#1a1e30;border:1px solid #2a2d3a;color:#eee;padding:6px 9px;border-radius:6px;font-size:12px}
+input[type=number]{background:#1a1e30;border:1px solid #2a2d3a;color:#eee;padding:5px 8px;border-radius:5px;width:90px;font-size:12px}
+select{background:#1a1e30;border:1px solid #2a2d3a;color:#eee;padding:5px 8px;border-radius:5px;font-size:12px}
+label{font-size:12px;color:#666;margin-right:4px}
+.ev-box{height:480px;overflow-y:auto}
+.strat-card{background:#0e1020;border:1px solid #1e2235;border-radius:8px;padding:12px;margin-bottom:10px}
+.strat-card.active-strat{border-color:#818cf8}
+.subtabs{display:flex;gap:4px;margin-bottom:14px}
+.subtab{padding:5px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;color:#555;background:#0e1020;border:1px solid #1e2235}
+.subtab.stactive{background:#4338ca;color:#fff;border-color:#4338ca}
+.subpage{display:none}.subpage.stactive{display:block}
+.disclaimer{background:#1a1200;border:1px solid #713f12;border-radius:7px;padding:8px 12px;font-size:11px;color:#fbbf24;margin-bottom:10px}
+.tpl-card{background:#0e1020;border:1px solid #1e2235;border-radius:8px;padding:14px;margin-bottom:10px}
+.coming-soon{background:#0e1020;border:2px dashed #2a2d3a;border-radius:8px;padding:30px;text-align:center;color:#333;margin-bottom:10px}
+.warn-box{background:#450a0a;border:1px solid #991b1b;border-radius:8px;padding:10px 14px;margin-bottom:10px;color:#fca5a5;font-size:12px;line-height:1.7}
+.pay-box{background:#0c1a2e;border:1px solid #1e3a5f;border-radius:8px;padding:10px 14px;margin-bottom:10px;color:#93c5fd;font-size:12px;line-height:1.7}
+pre{white-space:pre-wrap;word-break:break-word;font-family:inherit;font-size:11px;color:#aaa;line-height:1.7}
+'''
+
+def mtype_badge(mt):
+    cls = {'BTC':'bdgb','SOL':'bdgb','NBA':'bdgr','NHL':'bdgp','Football':'bdgr','Esports':'bdgy'}.get(mt,'bdg')
+    return f'<span class="badge {cls}">{mt}</span>'
+
+def pnl_cell(v):
+    c = 'pnl-pos' if v >= 0 else 'pnl-neg'
+    return f'<span class="{c}">{"+" if v>=0 else ""}{v:.2f}</span>'
+
+def jb_status(nm, jobs):
+    info = jobs.get(nm, {}); run = info.get('run')
+    dot = '<span class="dot-on"></span>' if run else '<span class="dot-off"></span>'
+    return dot + (' 运行中' if run else ' 待机')
+
+
+LESSONS = [
+    ('critical','🔴','Football跟单 -$134，胜率仅8%',
+     '投$142回收$8。V3目标账号是专业对冲，裸跟导致全输。\n教训: 足球单场赢率低，对冲账号本金远大于我们。'),
+    ('critical','🔴','Other类小球会 -$107，回收率0.7%',
+     '投$107几乎全损。非主流市场CLOB几乎全失败。\n教训: 非主流市场流动性极差，必须完全禁止。'),
+    ('high','🟠','NBA跟单 -$19，胜率28%',
+     '投$116回收$97，18笔5胜13负。\n教训: NBA需结合伤病报告，纯价格跟单不可靠。'),
+    ('high','🟠','对冲锁死各损$9',
+     '同场球两边都买，止损无法执行。\n修复: 已加conditionId去重+自动MERGE回收。'),
+    ('medium','🟡','BTC方向 +$1.78，胜率35%',
+     '投$110回收$112，勉强打平。\n教训: BTC方向策略仅在单边上涨行情有效。'),
+    ('medium','🟡','CLOB失败成本被低估',
+     '早期CLOB成功率52%，流动性<$15K时更低。\n修复: 流动性门槛提高至$20K。'),
+]
+WHAT_WORKED = [
+    '✅ Esports跟单: 5笔3胜2负，60%胜率，值得保留',
+    '✅ 链上赎回系统: $159待结算仓位成功赎回',
+    '✅ MERGE自动回收: 对冲锁死合并回收$9本金',
+    '✅ 自进化引擎: NBA 25%胜率被自动检测并禁用',
+    '✅ 止盈架构基础: BTC高频市场止盈多笔成功',
+]
+
+
+def h_pos_rows(items, empty='暂无'):
+    if not items: return f'<tr><td colspan="7" style="color:#333;text-align:center;padding:12px">{empty}</td></tr>'
+    rows = ''
+    for it in items:
+        h = f'{it["mins"]/60:.0f}h' if it["mins"] > 60 else (f'{it["mins"]:.0f}m' if it["mins"] > 0 else '已过期')
+        pc = 'g' if it['price'] > 0.7 else ('y' if it['price'] > 0.4 else 'r')
+        rdm = '<span class="badge bdgg" style="font-size:10px">赎</span>' if it.get('redeemable') else ''
+        rows += (f'<tr><td>{mtype_badge(it["mtype"])}</td><td><b>{it["outcome"]}</b></td>'
+                 f'<td class="{pc}">{it["price"]:.0%}</td><td>${it["val"]:.2f}</td>'
+                 f'<td style="color:#555">${it["cost"]:.2f}</td><td>{pnl_cell(it["pnl_est"])}</td>'
+                 f'<td>{h} {rdm}</td></tr>')
+    return rows
+
+def h_ledger_rows(items):
+    if not items: return '<tr><td colspan="8" style="color:#333;text-align:center;padding:12px">暂无</td></tr>'
+    SM = {'win':('💰','bdgg','已结算'),'tp':('💚','bdgg','止盈卖出'),'sl':('🔶','bdgy','止损回收'),'open':('🔵','bdgb','持仓中'),'partial':('🟡','bdgy','部分回收')}
+    rows = ''
+    for it in items[:80]:
+        ic, cl, lb = SM.get(it['status'], ('⚪','bdg',''))
+        dt = datetime.fromtimestamp(it['entry_ts']).strftime('%m-%d %H:%M') if it['entry_ts'] else ''
+        rs = f'${it["returned"]:.2f}' if it['returned'] > 0 else '—'
+        rows += (f'<tr><td style="color:#444;white-space:nowrap">{dt}</td><td>{mtype_badge(it["mtype"])}</td>'
+                 f'<td style="max-width:150px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#888">{it["title"]}</td>'
+                 f'<td><b>{it["outcome"]}</b></td><td>${it["invested"]:.2f}</td><td>{rs}</td>'
+                 f'<td>{pnl_cell(it["pnl"])}</td><td><span class="badge {cl}">{ic} {lb}</span></td></tr>')
+    return rows
+
+def h_daily_rows(daily):
+    if not daily: return '<tr><td colspan="6" style="color:#333;text-align:center;padding:12px">暂无</td></tr>'
+    rows = ''
+    for day, s in daily[:14]:
+        pnl = s['out'] - s['in']; t = s['win'] + s['lose']
+        wr = s['win'] / t * 100 if t > 0 else 0
+        wrc = 'g' if wr >= 55 else ('y' if wr >= 40 else 'r')
+        rows += (f'<tr><td><b>{day}</b></td><td>${s["in"]:.2f}</td><td>${s["out"]:.2f}</td>'
+                 f'<td>{pnl_cell(pnl)}</td><td>{s["win"]}胜 {s["lose"]}负</td><td class="{wrc}">{wr:.0f}%</td></tr>')
+    return rows
+
+def h_type_rows(tp, disabled, show_btn=True):
+    if not tp: return '<tr><td colspan="7" style="color:#333;text-align:center;padding:12px">暂无</td></tr>'
+    rows = ''
+    for mt, s in sorted(tp.items(), key=lambda x: x[1]['out']-x[1]['in']):
+        pnl = s['out'] - s['in']; t = s['win'] + s['lose']
+        wr = s['win'] / t * 100 if t > 0 else 0
+        is_dis = mt in disabled
+        dis_tag = '<span class="badge bdgr" style="font-size:9px">禁</span>' if is_dis else ''
+        btn = ''
+        if show_btn:
+            btn = (f'<a class="btn btn-g" style="padding:2px 7px;font-size:10px" href="/?a=enable_mtype&mtype={mt}">启用</a>' if is_dis
+                   else f'<a class="btn btn-r" style="padding:2px 7px;font-size:10px" href="/?a=disable_mtype&mtype={mt}">禁用</a>')
+        rows += (f'<tr><td>{mtype_badge(mt)} {dis_tag}</td><td>${s["in"]:.2f}</td><td>${s["out"]:.2f}</td>'
+                 f'<td>{pnl_cell(pnl)}</td><td>{s["win"]}W {s["lose"]}L</td>'
+                 f'<td class="{"g" if wr>=55 else ("y" if wr>=40 else "r")}">{wr:.0f}%</td><td>{btn}</td></tr>')
+    return rows
+
+def h_evlog(fin_log):
+    if not fin_log: return '<div style="color:#333;text-align:center;padding:30px">暂无活动</div>'
+    COLORS = {'buy_ok':'#34d399','tp':'#4ade80','sl':'#fbbf24','redeem':'#818cf8',
+              'sell_fail':'#f87171','merge':'#38bdf8','skip':'#333','bet':'#60a5fa'}
+    html = ''
+    for ev in fin_log:
+        c = COLORS.get(ev['type'], '#444')
+        detail = f'<div style="font-size:11px;color:#555;margin-top:2px">{ev.get("detail","")}</div>' if ev.get('detail') else ''
+        html += (f'<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;'
+                 f'border-bottom:1px solid #0f1117;border-left:3px solid {c};padding-left:10px;margin-bottom:2px">'
+                 f'<span style="font-size:16px;min-width:22px">{ev["icon"]}</span>'
+                 f'<div style="flex:1"><div style="font-weight:700;font-size:12px">{ev["label"]}</div>{detail}</div>'
+                 f'<span style="font-size:10px;color:#333;white-space:nowrap">{ev["ts"]}</span></div>')
+    return html
+
+def h_v3_trace(traces, accts):
+    if not traces:
+        return '<p style="color:#333;padding:16px;text-align:center">暂无数据 — <a href="/?a=refresh_trace" style="color:#818cf8">点击刷新</a></p>'
+    rows = ''
+    acct_map = {a.get('name',''): a.get('addr','') for a in accts}
+    for t in traces[:30]:
+        pd = t.get('price_diff'); my_pnl = t.get('my_pnl', 0)
+        pd_html = ''
+        if pd is not None:
+            c = '#f87171' if pd > 0.02 else ('#34d399' if pd < -0.01 else '#888')
+            pd_html = f'<span style="color:{c}">{"⚠️+" if pd>0.02 else ("✅" if pd<-0.01 else "")}{pd:.3f}</span>'
+        acc = t.get('account',''); addr = acct_map.get(acc,'')
+        pm_link  = f'https://polymarket.com/profile/{addr}' if addr else '#'
+        pol_link = f'https://polygonscan.com/address/{addr}' if addr else '#'
+        dt = datetime.fromtimestamp(t['my_entry_ts']).strftime('%m-%d %H:%M') if t.get('my_entry_ts') else '—'
+        src_c = 'g' if t.get('src_pnl', 0) >= 0 else 'r'
+        rows += (f'<tr><td><a href="{pm_link}" target="_blank" style="color:#818cf8">🔗 {acc[:10]}</a><br>'
+                 f'<a href="{pol_link}" target="_blank" style="color:#444;font-size:10px">Scan ↗</a></td>'
+                 f'<td style="max-width:140px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;color:#888">{t.get("title","")}</td>'
+                 f'<td><b>{t.get("outcome","")}</b></td>'
+                 f'<td>${t.get("src_avg",0):.3f}<br><span class="{src_c}">{t.get("src_pnl_pct",0):+.1f}%</span></td>'
+                 f'<td>${t.get("my_avg",0):.3f}<br><span style="color:#444">{dt}</span></td>'
+                 f'<td>{pd_html}</td><td>${t.get("src_cur",0):.3f}</td>'
+                 f'<td>${t.get("my_val",0):.2f}</td><td>{pnl_cell(my_pnl)}</td></tr>')
+    return (f'<table><tr><th>账号</th><th>市场</th><th>方向</th><th>目标均价/PnL</th>'
+            f'<th>我方均价/时间</th><th>价差</th><th>现价</th><th>我市值</th><th>我盈亏</th></tr>{rows}</table>')
+
+
+def render(d, msg=''):
+    p = d['params']; jobs = d['jobs']
+    wr = d['won_n'] / d['settled_n'] * 100 if d['settled_n'] > 0 else 0
+    total = d['balance'] + d['pending_amt'] + d['active_val']
+    disabled = d['disabled']; stopped = d['stopped']
+    tp_cfg = d['tp_cfg']; strats = d['strats']
+    wallet = d['wallet']; payment = d['payment']
+
+    stop_bar = ''
+    if stopped:
+        stop_bar = ('<div style="background:#431407;border-bottom:2px solid #f97316;padding:9px 20px;'
+                    'display:flex;align-items:center;justify-content:space-between">'
+                    '<span style="color:#fdba74;font-weight:700">⏸ 机器人已停止</span>'
+                    '<a class="btn btn-g" href="/?a=start_bot">▶️ 重启</a></div>')
+    run_bar = ''
+    if not stopped:
+        run_bar = ('<div style="background:#14532d22;border-bottom:1px solid #166534;padding:5px 20px;'
+                   'display:flex;align-items:center;gap:12px;font-size:12px">'
+                   '<span class="dot-on"></span><span style="color:#4ade80">机器人运行中</span>'
+                   '<a class="btn btn-r" style="margin-left:auto;padding:3px 11px" href="/?a=stop_bot">⏸ 停止</a></div>')
+    msg_bar = ''
+    if msg:
+        cls = 'ok' if ('OK' in msg or '✅' in msg or '▶' in msg) else ('alert' if '❌' in msg else 'info')
+        msg_bar = f'<div style="padding:6px 20px 0"><div class="{cls}">{msg}</div></div>'
+    pending_bar = ''
+    if d['pending_amt'] > 0:
+        pending_bar = (f'<div style="padding:6px 20px 0"><div class="alert">⏳ <b>${d["pending_amt"]:.2f}</b> 待结算 '
+                       f'<a href="/?a=redeem" style="color:#fb923c;margin-left:8px;font-weight:700">赎回 →</a></div></div>')
+
+    def kpi(id_, label, val, sub, color=''):
+        vid = f' id="{id_}"' if id_ else ''
+        return (f'<div class="kpi"><h4>{label}</h4><div class="v {color}"{vid}>{val}</div>'
+                f'<div class="sub">{sub}</div></div>')
+
+    bal_c = 'g' if d['balance'] >= 10 else ('y' if d['balance'] >= 3 else 'r')
+    pnl_c = 'pnl-pos' if d['pnl_all'] >= 0 else 'pnl-neg'
+    pnl_s = f'{"+" if d["pnl_all"]>=0 else ""}{d["pnl_all"]:.2f}'
+    wrc   = 'g' if wr >= 55 else ('y' if wr >= 40 else 'r')
+    kpis  = (f'<div class="kpis">'
+             + kpi('kpi_balance','💵 余额', f'${d["balance"]:.2f}', 'USDC.e', bal_c)
+             + kpi('kpi_pending','⏳ 待结算', f'${d["pending_amt"]:.2f}', f'{len(d["pw"])}笔', 'y')
+             + kpi('','📊 持仓市值', f'${d["active_val"]:.2f}', f'赢{len(d["aw"])}中{len(d["am"])}亏{len(d["al"])}', 'b')
+             + kpi('kpi_total','💰 总资产', f'${total:.2f}', '余额+待结算+持仓', 'g' if total>=50 else 'y')
+             + kpi('','📈 已实现损益', f'${pnl_s}', f'投入${d["total_in"]:.0f}', pnl_c)
+             + kpi('','🏆 结算胜率', f'{wr:.0f}%', f'{d["won_n"]}/{d["settled_n"]}笔', wrc)
+             + '</div>')
+
+    def tog_btn(k, label):
+        on = p.get(f'{k}_enabled', True)
+        return (f'<a class="btn {"btn-g" if on else "btn-r"}" style="font-size:11px;padding:4px 10px" '
+                f'href="/?a=toggle_{k}">{"✅" if on else "⏸"} {label}</a>')
+
+    # TAB 0: 总览
+    t0 = (kpis
+          + '<div class="three">'
+          + '<div class="card"><h3>✅ 赢面 &gt;65%</h3><table><tr><th>类</th><th>方向</th><th>价格</th><th>市值</th><th>成本</th><th>盈亏</th><th>剩余</th></tr>'
+          + h_pos_rows(d["aw"]) + '</table></div>'
+          + '<div class="card"><h3>🟡 胶着 40-65%</h3><table><tr><th>类</th><th>方向</th><th>价格</th><th>市值</th><th>成本</th><th>盈亏</th><th>剩余</th></tr>'
+          + h_pos_rows(d["am"]) + '</table></div>'
+          + '<div class="card"><h3>🔴 落后 &amp; 待赎回</h3><table><tr><th>类</th><th>方向</th><th>价格</th><th>市值</th><th>成本</th><th>盈亏</th><th>剩余</th></tr>'
+          + h_pos_rows(d["al"]+d["pw"]) + '</table></div></div>'
+          + '<div class="two">'
+          + '<div class="card"><h3>📊 按市场类型盈亏</h3><table><tr><th>类型</th><th>投入</th><th>回收</th><th>净损益</th><th>战绩</th><th>胜率</th><th>操作</th></tr>'
+          + h_type_rows(d["type_pnl"], disabled) + '</table></div>'
+          + '<div class="card"><h3>🤖 策略状态</h3>'
+          + f'<div style="margin-bottom:10px">{tog_btn("v1","V1 BTC")} {tog_btn("v2","V2 榜单")} {tog_btn("v3","V3 名单")} {tog_btn("fast","止盈扫描")}</div>'
+          + '<table><tr><th>任务</th><th>状态</th><th>触发</th></tr>'
+          + f'<tr><td><b>fast</b> 5min止盈</td><td>{jb_status("fast",jobs)}</td><td><a class="btn btn-gray" style="padding:2px 8px;font-size:10px" href="/?a=run_fast">▶</a></td></tr>'
+          + f'<tr><td><b>mid</b> 15min跟单</td><td>{jb_status("mid",jobs)}</td><td><a class="btn btn-gray" style="padding:2px 8px;font-size:10px" href="/?a=run_mid">▶</a></td></tr>'
+          + f'<tr><td><b>v1</b> 整点BTC</td><td>{jb_status("v1",jobs)}</td><td><a class="btn btn-gray" style="padding:2px 8px;font-size:10px" href="/?a=run_v1">▶</a></td></tr>'
+          + f'</table><div style="margin-top:8px;font-size:11px;color:#444">禁用: <b style="color:#f87171">{", ".join(disabled) or "无"}</b></div>'
+          + '</div></div>')
+
+    # TAB 1
+    t1 = ('<div class="card"><h3>💳 每单明细（最近80笔）</h3>'
+          '<table><tr><th>进场时间</th><th>类型</th><th>市场</th><th>方向</th><th>投入</th><th>回收</th><th>净盈亏</th><th>状态</th></tr>'
+          + h_ledger_rows(d["ledger"]) + '</table></div>')
+
+    # TAB 2
+    t2 = ('<div class="two"><div class="card"><h3>📅 每日战绩</h3>'
+          '<table><tr><th>日期</th><th>投入</th><th>回收</th><th>净损益</th><th>战绩</th><th>胜率</th></tr>'
+          + h_daily_rows(d["daily"]) + '</table></div><div>'
+          + '<div class="card"><h3>📊 各类型累计盈亏</h3><table><tr><th>类型</th><th>投入</th><th>回收</th><th>净损益</th><th>战绩</th><th>胜率</th><th>操作</th></tr>'
+          + h_type_rows(d["type_pnl"], disabled) + '</table></div>'
+          + '<div class="card"><h3>🛑 控制</h3>'
+          + f'<a class="btn {"btn-r" if not stopped else "btn-g"}" href="/?a={"stop_bot" if not stopped else "start_bot"}">{"⏸ 停止" if not stopped else "▶️ 重启"}</a>'
+          + '</div></div></div>')
+
+    # TAB 3
+    tp_evols = tp_cfg.get('evolutions', [])
+    evol_html = ''.join(
+        f'<div style="font-size:11px;color:#818cf8;padding:4px 0;border-bottom:1px solid #1a1e30"><b>{e.get("ts","")[:16]}</b>: {e.get("note","")[:100]}</div>'
+        for e in reversed(tp_evols[-5:]))
+    t3 = ('<div class="two"><div>'
+          + '<div class="card"><h3>💚 止盈策略</h3>'
+          + '<form method="POST" action="/?a=save_tp"><input type="hidden" name="sl_enabled" value="1">'
+          + f'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">'
+          + f'<div><label>止盈触发线</label><input type="number" name="tp_threshold" value="{tp_cfg.get("tp_threshold",0.75)}" step="0.01" min="0.5" max="0.99"></div>'
+          + f'<div><label>止盈比例</label><input type="number" name="tp_partial" value="{tp_cfg.get("tp_partial",0.5)}" step="0.1" min="0.1" max="1.0"></div>'
+          + f'<div><label>满赔线</label><input type="number" name="tp_redeem_trigger" value="{tp_cfg.get("tp_redeem_trigger",0.92)}" step="0.01" min="0.8" max="0.99"></div>'
+          + '</div><button class="btn btn-g" type="submit">💾 保存止盈</button></form></div>'
+          + '<div class="card"><h3>🔶 止损策略</h3>'
+          + '<form method="POST" action="/?a=save_tp"><input type="hidden" name="tp_enabled" value="1">'
+          + f'<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">'
+          + f'<div><label>止损触发线</label><input type="number" name="sl_threshold" value="{tp_cfg.get("sl_threshold",0.20)}" step="0.01" min="0.05" max="0.5"></div>'
+          + f'<div><label>时间止损(分钟)</label><input type="number" name="sl_time_limit" value="{tp_cfg.get("sl_time_limit",4320)}" step="60" min="60"></div>'
+          + f'<div><label>清仓方式</label><select name="sl_full"><option value="1" {"selected" if tp_cfg.get("sl_full") else ""}>全部清仓</option><option value="0" {"selected" if not tp_cfg.get("sl_full") else ""}>卖一半</option></select></div>'
+          + '</div><button class="btn btn-o" type="submit">💾 保存止损</button></form></div>'
+          + '</div><div><div class="card"><h3>🧬 进化中心</h3>'
+          + '<form method="POST" action="/?a=evolve_tp">'
+          + f'<textarea name="tp_notes" placeholder="补充想法…" style="width:100%;height:80px;resize:vertical">{tp_cfg.get("user_notes","")}</textarea>'
+          + '<div style="margin-top:8px"><button class="btn btn-pu" type="submit">🧬 一键进化</button></div></form>'
+          + (f'<div class="sh" style="margin-top:12px">历史进化</div><div style="background:#0e1020;border-radius:8px;padding:8px">{evol_html}</div>' if tp_evols else '')
+          + '</div></div></div>')
+
+    # TAB 4
+    sev_colors = {'critical':'#f87171','high':'#fb923c','medium':'#fbbf24'}
+    lessons_html = ''.join(
+        f'<div style="background:#0e1020;border-radius:8px;padding:12px 14px;margin-bottom:10px;border-left:4px solid {sev_colors.get(sev,"#888")}">'
+        f'<div style="font-weight:700;font-size:13px;margin-bottom:6px">{icon} {title}</div>'
+        f'<div style="font-size:12px;color:#aaa;line-height:1.8">{body.replace(chr(10),"<br>")}</div></div>'
+        for sev, icon, title, body in LESSONS)
+    worked_html = ''.join(f'<div style="font-size:12px;color:#34d399;padding:4px 0">{w}</div>' for w in WHAT_WORKED)
+    rev_evols = d['review'].get('evolutions', [])
+    rev_evol_html = ''.join(
+        f'<div style="font-size:11px;color:#818cf8;padding:4px 0;border-bottom:1px solid #1a1e30"><b>{e.get("ts","")[:16]}</b>: {e.get("note","")[:100]}</div>'
+        for e in reversed(rev_evols[-5:]))
+    t4 = (f'<div style="background:#1a0000;border:1px solid #7f1d1d;border-radius:10px;padding:14px;margin-bottom:14px">'
+          f'<div style="font-size:14px;font-weight:800;color:#f87171">📉 余额+持仓 ${d["balance"]+d["active_val"]:.2f} · 净损益 <span style="color:#f87171">${d["pnl_all"]:.2f}</span></div></div>'
+          + '<div class="two">'
+          + f'<div><div class="sh">❌ 亏损原因</div>{lessons_html}</div>'
+          + '<div>'
+          + f'<div class="sh">✅ 做对的部分</div><div style="background:#0e1020;border-radius:8px;padding:12px;margin-bottom:12px">{worked_html}</div>'
+          + '<div class="sh">📝 补充意见 + 进化</div>'
+          + '<form method="POST" action="/?a=evolve_review">'
+          + f'<textarea name="review_notes" placeholder="你的补充想法…" style="width:100%;height:90px;resize:vertical">{d["review"].get("user_notes","")}</textarea>'
+          + '<div style="margin-top:8px;display:flex;gap:8px"><button class="btn btn-pu" type="submit">🧬 进化</button><a class="btn btn-gray" href="/?a=save_review">💾 保存</a></div></form>'
+          + (f'<div class="sh" style="margin-top:12px">历史进化</div><div style="background:#0e1020;border-radius:8px;padding:8px">{rev_evol_html}</div>' if rev_evols else '')
+          + '</div></div>')
+
+    # TAB 5: 策略管理+ 三进阶
+    skillpay_active = bool(payment.get('skillpay_key',''))
+    sp_price = payment.get('skillpay_price', 0.01)
+
+    tpl_cards = (
+        '<div class="disclaimer">⚠️ 模板仅供参考，不保证盈利，使用风险自负</div>'
+        + '<div class="tpl-card"><div style="display:flex;justify-content:space-between"><div><span class="badge bdgb">模板1</span> <b>BTC趋势跟随</b></div><span class="badge bdgt">官方</span></div>'
+        + '<div style="font-size:12px;color:#aaa;margin:8px 0;line-height:1.8">4h均线上穿入场，止盈0.75，止损0.25。仅加密货币市场（BTC/ETH hourly），震荡行情效果有限。</div>'
+        + '<a class="btn btn-teal" href="/?a=apply_template&tpl=1">一键应用</a></div>'
+        + '<div class="tpl-card"><div style="display:flex;justify-content:space-between"><div><span class="badge bdgy">模板2</span> <b>电竞大赛跟投</b></div><span class="badge bdgt">官方</span></div>'
+        + '<div style="font-size:12px;color:#aaa;margin:8px 0;line-height:1.8">CS2/Valorant Major赛前2h入场，价格区间0.45-0.65，止盈0.78。历史胜率约60%，单注≤$8。</div>'
+        + '<a class="btn btn-teal" href="/?a=apply_template&tpl=2">一键应用</a></div>'
+        + '<div class="tpl-card"><div style="display:flex;justify-content:space-between"><div><span class="badge bdgp">模板3</span> <b>高胜率账号跟单</b></div><span class="badge bdgt">官方</span></div>'
+        + '<div style="font-size:12px;color:#aaa;margin:8px 0;line-height:1.8">跟踪Polymarket日榜前10，近30天胜率&gt;60%，单注$5，15min内跟入。</div>'
+        + '<a class="btn btn-teal" href="/?a=apply_template&tpl=3">一键应用</a></div>'
+    )
+
+    ai_form = (
+        '<div style="background:#0e1020;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12px;color:#aaa;line-height:1.8">'
+        + '💡 描述策略想法，AI自动分析生成可执行策略代号。'
+        + (f'<br><b style="color:#fbbf24">💳 本次分析消耗 ${sp_price} (skillpay.me)</b>' if skillpay_active else '')
+        + '</div>'
+        + '<form method="POST" action="/?a=add_strategy"'
+        + (f' onsubmit="return confirm(\'本次AI分析将消耗 ${sp_price}，确认继续？\')"' if skillpay_active else '') + '>'
+        + '<div class="sh">策略名称（可选）</div>'
+        + '<input type="text" name="strat_name" placeholder="例如：Esports主场" style="width:100%;margin-bottom:10px"><br>'
+        + '<div class="sh">策略说明 *（必填）</div>'
+        + '<textarea name="strat_desc" placeholder="例如：跟踪Polymarket排行榜前10的电竞账号，赛前2小时入场，赔率0.45-0.65…" style="width:100%;height:90px;resize:vertical;margin-bottom:10px"></textarea>'
+        + '<div class="sh">案例/链接（每行一个）</div>'
+        + '<textarea name="strat_links" placeholder="https://polymarket.com/@username" style="width:100%;height:60px;resize:vertical;margin-bottom:10px"></textarea>'
+        + '<div class="sh">目标钱包地址（可选）</div>'
+        + '<textarea name="strat_addr" placeholder="0xabc..." style="width:100%;height:44px;resize:vertical;margin-bottom:10px"></textarea>'
+        + '<div class="sh">补充备注</div>'
+        + '<textarea name="strat_note" placeholder="你的观察…" style="width:100%;height:44px;resize:vertical;margin-bottom:10px"></textarea>'
+        + '<button class="btn btn-pu" type="submit" style="width:100%;padding:10px;font-size:13px">🤖 提交 → AI分析生成策略</button></form>'
+    )
+
+    market_html = (
+        '<div class="coming-soon"><div style="font-size:32px;margin-bottom:8px">🛒</div>'
+        + '<div style="font-size:15px;font-weight:700;color:#555;margin-bottom:6px">策略市场 · 即将上线</div>'
+        + '<div style="font-size:12px;color:#333;line-height:1.8;margin-bottom:12px">成功策略可在此购买，盈利后自动按比例（1-10%）分账给策略作者<br>亏损自负。平台自动扣除分成。</div>'
+        + '<button class="btn btn-gray" disabled style="opacity:.4;cursor:not-allowed">📤 上架我的策略（Coming Soon）</button></div>'
+        + '<div style="background:#0e1020;border-radius:8px;padding:14px;font-size:12px;color:#555;line-height:1.9">'
+        + '<b style="color:#444">分账规则（规划中）：</b><br>'
+        + '· 策略作者设定 1%-10% 盈利分成<br>'
+        + '· 使用者按次付费激活（支持 X402 / skillpay.me）<br>'
+        + '· 每笔盈利结算时链上自动转给作者<br>'
+        + '· 亏损由使用者自负</div>'
+    )
+
+    custom_section = ''
+    if strats:
+        cards = ''
+        for s in strats:
+            is_active = s.get('enabled', False)
+            border = '#818cf8' if is_active else '#2a2d3a'
+            sa = s.get('source_addr','').split('\n')[0].strip()
+            cards += (
+                f'<div class="strat-card" style="border-color:{border}">'
+                f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+                f'<span><span class="badge bdgp">{s.get("code","")}</span> <b>{s.get("name","")}</b></span>'
+                f'<span class="badge {"bdgg" if is_active else "bdg"}">{"✅ 运行中" if is_active else "⏸ 待启用"}</span></div>'
+                f'<div style="font-size:10px;color:#444;margin-bottom:4px">{s.get("submitted_at","")[:16]}</div>'
+                f'<div style="font-size:11px;color:#888;margin-bottom:8px">{s.get("source_desc","")[:120]}</div>'
+                f'<div class="sh" style="margin-bottom:4px">🤖 AI分析</div><pre>{s.get("analysis","")}</pre>'
+                + (f'<div class="sh" style="margin-bottom:4px">备注</div><div style="font-size:11px;color:#a78bfa">{s.get("user_note","")}</div>' if s.get("user_note") else '')
+                + f'<div style="margin-top:8px;display:flex;gap:6px">'
+                + (f'<a class="btn btn-g" style="font-size:11px;padding:3px 10px" href="/?a=toggle_custom&code={s.get("code","")}" >▶ 启用</a>' if not is_active else f'<a class="btn btn-r" style="font-size:11px;padding:3px 10px" href="/?a=toggle_custom&code={s.get("code","")}">⏸ 暂停</a>')
+                + (f'<a class="btn btn-gray" style="font-size:11px;padding:3px 10px" href="https://polymarket.com/profile/{sa}" target="_blank">PM主页</a>' if sa else '')
+                + '</div></div>'
+            )
+        custom_section = f'<div class="card"><h3>🧩 已有策略</h3>{cards}</div>'
+
+    t5 = (
+        '<div class="subtabs">'
+        '<div class="subtab stactive" onclick="showST(0,this)">📋 官方模板</div>'
+        '<div class="subtab" onclick="showST(1,this)">🤖 AI生成策略</div>'
+        '<div class="subtab" onclick="showST(2,this)">🛒 策略市场</div>'
+        '</div>'
+        '<div class="subpage stactive" id="st0">'
+        + '<div class="two"><div>' + tpl_cards + '</div>'
+        + '<div>' + custom_section + '</div></div>'
+        + '</div>'
+        '<div class="subpage" id="st1">'
+        + '<div class="two"><div>' + ai_form + '</div>'
+        + '<div><div class="card"><h3>💡 生成说明</h3>'
+        + '<div style="font-size:12px;color:#aaa;line-height:1.9">'
+        + '1. 填写策略思路、市场类型<br>2. 粘贴参考链接或钱包地址<br>'
+        + '3. AI自动识别市场类型、生成风控建议<br>'
+        + '4. 策略生成后需手动启用，默认待确认状态<br>'
+        + '5. 启用后系统按策略参数自动执行</div></div>'
+        + custom_section
+        + '</div></div></div>'
+        '<div class="subpage" id="st2">' + market_html + '</div>'
+    )
+
+    # TAB 6: V3名单
+    acct_list_html = ''
+    for a in d['accts']:
+        addr = a.get('addr','')
+        pm_link  = f'https://polymarket.com/profile/{addr}'
+        pol_link = f'https://polygonscan.com/address/{addr}'
+        is_active = a.get('active', True)
+        acct_list_html += (f'<div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid #0f1117">'
+                           f'<span class="badge {"bdgg" if is_active else "bdg"}">{a.get("score",0)}分</span>'
+                           f'<b style="min-width:80px">{a.get("name","")}</b>'
+                           f'<a href="{pm_link}" target="_blank" class="btn btn-gray" style="font-size:10px;padding:2px 7px">PM主页 ↗</a>'
+                           f'<a href="{pol_link}" target="_blank" class="btn btn-gray" style="font-size:10px;padding:2px 7px">Scan ↗</a>'
+                           f'<span style="color:#333;font-size:10px;font-family:monospace">{addr[:18]}…</span></div>')
+    t6 = ('<div style="display:flex;justify-content:flex-end;margin-bottom:8px">'
+          '<a class="btn btn-gray" href="/?a=refresh_trace">🔄 刷新追踪</a></div>'
+          '<div class="card"><h3>🔬 跟单明细</h3>'
+          + h_v3_trace(d["v3_trace"], d["accts"]) + '</div>'
+          + f'<div class="card"><h3>👥 V3监控账号（{len(d["accts"])}个）</h3>'
+          + (acct_list_html or '<p style="color:#444">未找到账号文件</p>') + '</div>')
+
+    # TAB 7: 设置（含安全钱包+支付配置）
+    t7 = ('<div class="two">'
+          '<div class="card"><h3>🎮 策略开关 &amp; 市场管理</h3>'
+          f'<div style="margin-bottom:10px">{tog_btn("v1","V1 BTC")} {tog_btn("v2","V2 榜单")} {tog_btn("v3","V3 名单")} {tog_btn("fast","止盈扫描")}</div>'
+          '<table><tr><th>类型</th><th>投入</th><th>回收</th><th>净损益</th><th>战绩</th><th>胜率</th><th>操作</th></tr>'          + h_type_rows(d["type_pnl"], disabled) + '</table></div>'
+          '<div class="card"><h3>⚙️ 参数设置</h3>'
+          '<form method="POST" action="/?a=save_params">'
+          '<div class="sh">下注金额</div>'
+          f'<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">'
+          f'<div><label>V1每笔 $</label><input type="number" name="bet_v1" value="{p.get("bet_v1",5)}" step="0.5" min="3"></div>'
+          f'<div><label>V2基础 $</label><input type="number" name="bet_v2_base" value="{p.get("bet_v2_base",5)}" step="0.5" min="3"></div>'
+          f'<div><label>V3基础 $</label><input type="number" name="bet_v3_base" value="{p.get("bet_v3_base",5)}" step="0.5" min="3"></div>'
+          '</div>'
+          '<div class="sh">过滤条件</div>'
+          f'<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:10px">'
+          f'<div><label>最低入场价</label><input type="number" name="min_price" value="{p.get("min_price",0.40)}" step="0.01" min="0.1" max="0.9"></div>'
+          f'<div><label>最高入场价</label><input type="number" name="max_price" value="{p.get("max_price",0.88)}" step="0.01" min="0.5" max="0.99"></div>'
+          f'<div><label>最低流动性 $</label><input type="number" name="min_liquidity" value="{p.get("min_liquidity",20000)}" step="1000" min="5000"></div>'
+          '</div>'
+          '<button class="btn btn-p" type="submit">💾 保存参数</button>'
+          '</form>'
+          '<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">'
+          '<a class="btn btn-gray" href="/?a=run_mid">▶ 立即跟单</a>'
+          '<a class="btn btn-gray" href="/?a=run_fast">▶ 立即止盈</a>'
+          '<a class="btn btn-gray" href="/?a=redeem">💰 赎回</a>'
+          '<a class="btn btn-gray" href="/?a=merge_hedges">🔄 MERGE</a>'
+          '</div></div></div>'
+
+          # 安全钱包设置（全宽）
+          '<div class="card" style="margin-top:0"><h3>🔐 安全钱包设置（盈利分离）</h3>'
+          '<div class="warn-box">⚠️ <b>安全提示：</b>交易钱包私钥请勿暴露（GitHub等）。'
+          '建议设置独立收益钱包地址，机器人产生盈利时自动转出到此地址，与本金账户完全分离。'
+          '本金钱包仅持有运营资金，收益实时归集到安全钱包。</div>'
+          '<form method="POST" action="/?a=save_wallet_config">'
+          '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px">'
+          f'<div style="flex:1;min-width:220px"><label>收益接收钱包地址</label><br>'
+          f'<input type="text" name="profit_wallet" value="{wallet.get("profit_wallet","")}" placeholder="0x..." style="width:100%;margin-top:4px"></div>'
+          f'<div><label>自动转出阈值 $</label><br><input type="number" name="profit_threshold" value="{wallet.get("profit_threshold",20)}" step="1" min="1" style="margin-top:4px"></div>'
+          f'<div><label>自动转出</label><br><select name="profit_auto" style="margin-top:4px"><option value="on" {"selected" if wallet.get("profit_auto")=="on" else ""}>开启</option><option value="off" {"selected" if wallet.get("profit_auto","off")!="on" else ""}>关闭</option></select></div>'
+          '</div>'
+          '<button class="btn btn-g" type="submit">💾 保存钱包配置</button>'
+          '</form></div>'
+
+          # 支付/计费设置（全宽）
+          '<div class="card"><h3>💳 API计费设置（skillpay.me &amp; X402）</h3>'
+          '<div class="pay-box">iEarn.Bot 支持两种计费模式：<b>skillpay.me</b>（微支付API）和 <b>X402协议</b>（HTTP 402，USDC链上）。'
+          '配置后用户每次调用AI生成策略时自动扣费。</div>'
+          '<form method="POST" action="/?a=save_payment_config">'
+          '<div class="sh">skillpay.me 配置</div>'
+          '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px">'
+          f'<div style="flex:1;min-width:180px"><label>API Key</label><br><input type="password" name="skillpay_key" value="{payment.get("skillpay_key","")}" placeholder="sk-..." style="width:100%;margin-top:4px"></div>'
+          f'<div><label>每次调用收费 $</label><br><input type="number" name="skillpay_price" value="{payment.get("skillpay_price",0.01)}" step="0.001" min="0.001" style="margin-top:4px"></div>'
+          '</div>'
+          '<div class="sh">X402 协议配置</div>'
+          '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-bottom:10px">'
+          f'<div><label>X402启用</label><br><select name="x402_enabled" style="margin-top:4px"><option value="on" {"selected" if payment.get("x402_enabled")=="on" else ""}>开启</option><option value="off" {"selected" if payment.get("x402_enabled","off")!="on" else ""}>关闭</option></select></div>'
+          f'<div style="flex:1;min-width:180px"><label>X402收款地址（USDC）</label><br><input type="text" name="x402_wallet" value="{payment.get("x402_wallet","")}" placeholder="0x..." style="width:100%;margin-top:4px"></div>'
+          f'<div><label>单次收费 USDC</label><br><input type="number" name="x402_price" value="{payment.get("x402_price",0.005)}" step="0.001" min="0.001" style="margin-top:4px"></div>'
+          '</div>'
+          '<button class="btn btn-p" type="submit">💾 保存支付配置</button>'
+          '</form></div>'
+          )
+
+    # TAB 8: 资金动态
+    t8 = ('<div class="two">'
+          '<div class="card" style="height:fit-content"><h3>💡 事件说明</h3>'
+          '<div style="display:flex;flex-direction:column;gap:7px;font-size:12px">'
+          '<div>🟢 <b>买入成功</b> — 资金已锁入仓位</div>'
+          '<div>💚 <b>止盈卖出</b> — 浮盈已回收</div>'
+          '<div>🔶 <b>止损回收</b> — 截损，回收剩余</div>'
+          '<div>💰 <b>赎回到账</b> — 满赔结算进余额</div>'
+          '<div>🔄 <b>MERGE回收</b> — 对冲仓合并回本金</div>'
+          '<div>🔴 <b>卖单失败</b> — 流动性不足/对冲锁死</div>'
+          '<div>⚪ <b>跳过</b> — 余额不足或条件不满足</div>'
+          '</div></div>'
+          '<div class="card"><h3>🔔 实时资金动态</h3>'
+          f'<div class="ev-box">{h_evlog(d["fin_log"])}</div></div>'
+          '</div>')
+
+    # LOGO HTML
+    logo_html = (
+        '<div class="logo">'
+        '<div class="logo-icon">iE</div>'
+        '<div><div class="logo-name">iEarn.Bot</div>'
+        '<div class="logo-sub">AI赚钱机器人 · v0.1.0-alpha</div></div>'
+        '</div>'
+    )
+
+    return f'''<!DOCTYPE html><html lang="zh"><head>
+<meta charset="UTF-8">
+<title>iEarn.Bot — AI赚钱机器人</title>
+<style>{CSS}</style>
+</head><body>
+<div class="hdr">
+  {logo_html}
+  <div style="display:flex;align-items:center;gap:4px">
+    <span style="color:#333;font-size:11px">{d["now"]} · 20s刷新</span>
+    <a class="btn btn-gray" href="/?a=redeem">💰 赎回</a>
+    <a class="btn btn-gray" href="/?a=merge_hedges">🔄 MERGE</a>
+    <a class="btn {"btn-r" if not stopped else "btn-g"}" href="/?a={"stop_bot" if not stopped else "start_bot"}">{"⏸ 停止" if not stopped else "▶ 启动"}</a>
+  </div>
+</div>
+{stop_bar}{run_bar}{msg_bar}{pending_bar}
+<div class="tabs">
+  <div class="tab active" onclick="show(0,this)">📊 总览</div>
+  <div class="tab" onclick="show(1,this)">💳 每单明细</div>
+  <div class="tab" onclick="show(2,this)">📅 日清日结</div>
+  <div class="tab" onclick="show(3,this)">💹 止盈/止损</div>
+  <div class="tab" onclick="show(4,this)">🔬 复盘回顾</div>
+  <div class="tab" onclick="show(5,this)">🧩 策略管理+</div>
+  <div class="tab" onclick="show(6,this)">🎯 V3名单</div>
+  <div class="tab" onclick="show(7,this)">⚙️ 设置</div>
+  <div class="tab" onclick="show(8,this)">🔔 资金动态</div>
+</div>
+<div class="page active" id="t0">{t0}</div>
+<div class="page" id="t1">{t1}</div>
+<div class="page" id="t2">{t2}</div>
+<div class="page" id="t3">{t3}</div>
+<div class="page" id="t4">{t4}</div>
+<div class="page" id="t5">{t5}</div>
+<div class="page" id="t6">{t6}</div>
+<div class="page" id="t7">{t7}</div>
+<div class="page" id="t8">{t8}</div>
+<script>
+function show(n,el){{
+  document.querySelectorAll('.page').forEach((p,i)=>p.classList.toggle('active',i===n));
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  if(el) el.classList.add('active');
+  localStorage.setItem('pt_tab',n);
+}}
+function showST(n,el){{
+  document.querySelectorAll('.subpage').forEach((p,i)=>p.classList.toggle('stactive',i===n));
+  document.querySelectorAll('.subtab').forEach(t=>t.classList.remove('stactive'));
+  if(el) el.classList.add('stactive');
+}}
+setInterval(function(){{
+  if (document.activeElement && (document.activeElement.tagName==='TEXTAREA'||document.activeElement.tagName==='INPUT')) return;
+  fetch('/?partial=1').then(r=>r.json()).then(function(dd){{
+    var b=document.getElementById('kpi_balance'); if(b) b.textContent='$'+(dd.balance||0).toFixed(2);
+    var t=document.getElementById('kpi_total');   if(t) t.textContent='$'+(dd.total||0).toFixed(2);
+    var p=document.getElementById('kpi_pending'); if(p) p.textContent='$'+(dd.pending_amt||0).toFixed(2);
+  }}).catch(()=>{{}});
+}}, 20000);
+(function(){{
+  if(location.search&&location.search.indexOf('a=')>=0) return;
+  var t=parseInt(localStorage.getItem('pt_tab')||'0');
+  if(t>0){{var tabs=document.querySelectorAll('.tab');if(tabs[t])show(t,tabs[t]);}}
+}})();
+</script>
+</body></html>'''
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *a): pass
+    def do_GET(self): self._handle()
+    def do_POST(self): self._handle()
+    def _handle(self):
+        parsed = urllib.parse.urlparse(self.path)
+        qp = dict(urllib.parse.parse_qsl(parsed.query))
+        if self.command == 'POST':
+            length = int(self.headers.get('Content-Length', 0))
+            qp.update(urllib.parse.parse_qsl(self.rfile.read(length).decode()))
+        if qp.get('partial') == '1':
+            d = get_data()
+            total = d['balance'] + d['pending_amt'] + d['active_val']
+            payload = json.dumps({'balance': d['balance'], 'pending_amt': d['pending_amt'], 'total': total}).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type','application/json;charset=utf-8')
+            self.send_header('Content-Length', str(len(payload)))
+            self.end_headers(); self.wfile.write(payload); return
+        act = qp.pop('a', '')
+        msg = ''
+        if act:
+            msg = do_action(act, qp)
+            if self.command == 'GET' and msg and not msg.startswith('❌'):
+                self.send_response(302)
+                self.send_header('Location', '/')
+                self.end_headers(); return
+        try:
+            d = get_data()
+        except Exception as e:
+            d = {'balance':0,'pw':[],'aw':[],'am':[],'al':[],'pending_amt':0,'active_val':0,
+                 'total_in':0,'total_out':0,'total_rdm':0,'total_sell':0,'pnl_all':0,
+                 'params':load_params(),'stats':{},'jobs':{},'ledger':[],'fin_log':[],'daily':[],
+                 'type_pnl':{},'settled_n':0,'won_n':0,'accts':[],'v3_trace':[],'review':load_review(),
+                 'tp_cfg':load_tp(),'strats':load_strategies(),'wallet':load_wallet(),'payment':load_payment(),
+                 'disabled':[],'stopped':is_stopped(),'now':'--:--:--'}
+            msg = f'⚠️ 数据加载错误: {e}'
+        html = render(d, msg).encode('utf-8')
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/html;charset=utf-8')
+        self.send_header('Content-Length', str(len(html)))
+        self.end_headers()
+        self.wfile.write(html)
+
+
+if __name__ == '__main__':
+    import sys
+    port = int(sys.argv[1]) if len(sys.argv) > 1 else PORT
+    print(f'iEarn.Bot Dashboard v0.1: http://localhost:{port}')
+    HTTPServer(('127.0.0.1', port), Handler).serve_forever()

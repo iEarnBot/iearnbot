@@ -1,0 +1,37 @@
+{
+  "name": "V4_BTC_100k_March",
+  "description": "BTC breakout strategy for Polymarket: Will BTC exceed 100k by end of March?",
+  "market_adapter": "polymarket",
+  "entry": {
+    "trigger": "BTC price breakout above 45% on 'Will BTC exceed 100k by end of March?' market",
+    "min_liquidity": 5000,
+    "max_spread": 0.05,
+    "categories": [
+      "crypto"
+    ]
+  },
+  "position": {
+    "side": "YES",
+    "size_usdc": 10,
+    "max_positions": 5,
+    "max_order_size": 15,
+    "max_position": 50
+  },
+  "exit": {
+    "take_profit": 0.8,
+    "stop_loss": 0.3,
+    "trailing_stop": 0.1,
+    "resolve_redeem": true
+  },
+  "risk": {
+    "max_daily_loss": 25,
+    "max_drawdown": 0.3,
+    "cooldown_period": 300,
+    "kill_switch": false
+  },
+  "schedule": {
+    "mode": "interval",
+    "every": 15,
+    "unit": "minutes"
+  }
+}

@@ -15,6 +15,7 @@ import os
 import json
 import sys
 import re
+import requests
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -324,11 +325,28 @@ def generate_strategy_v2(content: str, description: str = "", strategy_num: int 
         {"role": "user",   "content": user_message},
     ])
 
-    # Strip markdown code fences if present
-    raw = re.sub(r'^```(?:json)?\s*', '', raw)
-    raw = re.sub(r'\s*```$', '', raw)
+    # Strip markdown code fences if present (handle multiline fences)
+    raw = re.sub(r'^```(?:json)?\s*\n?', '', raw.strip())
+    raw = re.sub(r'\n?```\s*$', '', raw.strip())
+    raw = raw.strip()
 
-    strategy = json.loads(raw)
+    # Try parsing directly first
+    try:
+        strategy = json.loads(raw)
+    except json.JSONDecodeError:
+        # Try to extract JSON object from the response
+        match = re.search(r'\{[\s\S]+\}', raw)
+        if match:
+            try:
+                strategy = json.loads(match.group(0))
+            except json.JSONDecodeError as e:
+                print(f"⚠️  AI returned non-JSON response. Using template fallback.")
+                print(f"   Raw (first 200 chars): {raw[:200]}")
+                return _template_strategy_v2(description or content[:80], strategy_num)
+        else:
+            print(f"⚠️  No JSON found in AI response. Using template fallback.")
+            print(f"   Raw (first 200 chars): {raw[:200]}")
+            return _template_strategy_v2(description or content[:80], strategy_num)
 
     # ── SAVE JSON ──────────────────────────────────────────────────────
     out_path = STRATEGY_DIR / f"V{strategy_num}.json"
@@ -455,6 +473,7 @@ if __name__ == "__main__":
     p_gen2 = subparsers.add_parser("generate-v2", help="Generate full strategy from content (v2)")
     p_gen2.add_argument("description", nargs="?", default="", help="Additional description")
     p_gen2.add_argument("--url", default="", help="URL to fetch content from")
+    p_gen2.add_argument("--text", default="", help="Plain text content to use directly")
     p_gen2.add_argument("--num", type=int, default=4, help="Strategy number suffix")
 
     args = parser.parse_args()
@@ -483,6 +502,10 @@ if __name__ == "__main__":
                 print("💡 Please paste the article/tweet text directly as the description argument.")
                 print('   Example: python src/strategy_ai.py generate-v2 "paste your text here"')
                 sys.exit(0)
+        # --text takes priority / supplements url content
+        if hasattr(args, 'text') and args.text:
+            text_input = args.text
+            content = (content + "\n" + text_input).strip() if content else text_input
         generate_strategy_v2(content, args.description, args.num)
 
     else:

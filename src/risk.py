@@ -491,6 +491,99 @@ def _update_price_only(pos: dict, pf: Path, condition_id: str,
             pass
 
 
+# ── RiskEngine class (OO wrapper for unit-testing and programmatic use) ────
+
+class RiskEngine:
+    """
+    Object-oriented wrapper around the risk module's functional helpers.
+    Suitable for unit tests and direct programmatic use.
+
+    Uses the same RISK_DIR / DAILY_LOSS_FILE / KILL_SWITCH_FLAG paths as the
+    module-level functions so state is shared.
+    """
+
+    def __init__(self) -> None:
+        # Ensure data/risk/ directory always exists on instantiation
+        RISK_DIR.mkdir(parents=True, exist_ok=True)
+        # In-memory peak price cache: {position_id: float}
+        self._peaks: dict = {}
+
+    # ── Kill-switch ──────────────────────────────────────────────────────
+
+    def kill(self) -> None:
+        set_kill_switch(True)
+
+    def resume(self) -> None:
+        set_kill_switch(False)
+
+    def is_kill_switch_active(self) -> bool:
+        return is_kill_switch_active()
+
+    # ── Daily loss ───────────────────────────────────────────────────────
+
+    def record_loss(self, amount_usdc: float) -> float:
+        """Record a realised loss.  Returns new cumulative daily loss."""
+        return add_daily_loss(amount_usdc)
+
+    def get_daily_loss(self) -> float:
+        return get_daily_loss()
+
+    def is_trading_blocked(self, max_daily_loss: float = 30.0) -> bool:
+        """Return True when cumulative daily loss >= max_daily_loss."""
+        return is_daily_loss_breached(max_daily_loss)
+
+    # ── Trailing stop ────────────────────────────────────────────────────
+
+    def check_trailing_stop(self, pos: dict, trailing_pct: float = 0.12) -> bool:
+        """
+        Return True if the trailing stop should trigger for *pos*.
+
+        Logic:
+          • peak_price = max(pos.get("peak_price"), current_price)
+            (also updated in self._peaks for stateful tracking)
+          • trigger if current_price < peak_price * (1 - trailing_pct)
+
+        The position dict is NOT mutated here; call update_peak() separately
+        if you need to persist the new peak.
+        """
+        pos_id        = pos.get("id", id(pos))
+        current_price = float(pos.get("current_price", pos.get("entry_price", 0)))
+        stored_peak   = float(pos.get("peak_price") or pos.get("entry_price") or current_price)
+
+        # Merge with in-memory cache
+        mem_peak = self._peaks.get(pos_id, stored_peak)
+        peak = max(stored_peak, mem_peak, current_price)
+
+        # Update in-memory peak
+        self._peaks[pos_id] = peak
+
+        threshold = peak * (1.0 - trailing_pct)
+        return current_price < threshold
+
+    def update_peak(self, pos: dict) -> float:
+        """Update and return the peak price for a position (call after each tick)."""
+        pos_id        = pos.get("id", id(pos))
+        current_price = float(pos.get("current_price", pos.get("entry_price", 0)))
+        stored_peak   = float(pos.get("peak_price") or pos.get("entry_price") or current_price)
+        mem_peak      = self._peaks.get(pos_id, stored_peak)
+        peak          = max(stored_peak, mem_peak, current_price)
+        self._peaks[pos_id] = peak
+        return peak
+
+    # ── Cooldown ─────────────────────────────────────────────────────────
+
+    def set_cooldown(self, position_id: str) -> None:
+        set_cooldown(position_id)
+
+    def is_in_cooldown(self, position_id: str, cooldown_period: int = 300) -> bool:
+        return is_in_cooldown(position_id, cooldown_period)
+
+    # ── Full position check ──────────────────────────────────────────────
+
+    def check_positions(self) -> None:
+        check_positions()
+
+
 # ── Status summary ─────────────────────────────────────────────────────────
 
 def print_status() -> None:

@@ -9,6 +9,8 @@ let tray = null;
 let pythonProcess = null;   // legacy one-shot process (python:run)
 let pyProcess = null;       // persistent IPC server process
 let pythonPath = 'python3';
+let _pyLineBuffer = '';     // accumulates partial lines from Python stdout
+const _pendingRequests = new Map(); // id -> { resolve, reject, timeoutHandle }
 
 // ──────────────────────────────────────────────
 // Python path detection

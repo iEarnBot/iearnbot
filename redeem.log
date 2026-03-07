@@ -1,0 +1,42 @@
+找到 14 个可赎回 conditionId，共 17 个仓位
+  赎回: Solana Up or Down - March 1, 10:15PM-10:  indexSets:[2]  ~$4.47
+    tx: c35544e0da5e4cfd4a3cf3b13609d442423274a83699c965fb4cdaf3f82a1756
+    ✅ 成功
+  赎回: Blues vs. Wild  indexSets:[2]  ~$4.00
+    tx: 44d67aeeb5cf621dc8cd85e6da122495f17a1a2395f1473e13016170bbfa6ff9
+    ✅ 成功
+  赎回: Blues vs. Wild: O/U 6.5  indexSets:[2]  ~$4.00
+    tx: 5869e0b13b8388c86e874428aaadf96d2611f9b2d2baf88c9ffb1169fa5fc814
+    ✅ 成功
+  赎回: Bitcoin Up or Down - March 1, 5PM ET  indexSets:[2]  ~$4.00
+    tx: 97ed3866834c6d6837eed3ccec39279024ffebf3458ab2d2aeb3104fdb99d60c
+    ✅ 成功
+  赎回: Panthers vs. Islanders  indexSets:[1]  ~$4.00
+    tx: 30c1f9ef5d3ba1caa80409874933052cb7ed28d49c867072146c5a849c7f3439
+    ✅ 成功
+  赎回: Counter-Strike: NIP vs Legacy (BO3) - ES  indexSets:[2]  ~$3.00
+    tx: 29b161b1e94ea6afeacccec397552311569882ebc0889f441addc1f9aeae0aff
+    ✅ 成功
+  赎回: 76ers vs. Celtics  indexSets:[1]  ~$3.00
+    tx: 433fd70cf10e8e4caca9f77abd318619d0636f61f93c926ca79960cac31593b6
+    ✅ 成功
+  赎回: Spread: Bucks (-2.5)  indexSets:[1]  ~$3.00
+    tx: 6eaf3ec67b2979c4c52370d5dfa335ebde161060aa0aae8137c047d777058ef2
+    ✅ 成功
+  赎回: Counter-Strike: 3DMAX vs paiN (BO3) - ES  indexSets:[2]  ~$3.00
+    tx: b42a487d6e500f77a0c9a51d811e2ab8357f84c4199a0e1f2563d68479987240
+    ✅ 成功
+  赎回: Arsenal FC vs. Chelsea FC: Both Teams to  indexSets:[1]  ~$3.00
+    tx: ce5c20d1939ef96662628bb3aadccd5251ceb3133a70b5d71b31c2ed6dbece21
+    ✅ 成功
+  赎回: Bitcoin Up or Down - March 2, 12:20AM-12  indexSets:[1, 2]  ~$5.70
+    tx: e2f9ef451b02023da74e9531f091a9000c524c38ab75c20ba41be61b693032ad
+    ✅ 成功
+  赎回: Bitcoin Up or Down - March 1, 10:55PM-11  indexSets:[1]  ~$2.02
+    ❌ 异常: {'code': -32000, 'message': 'replacement transaction underpriced'}
+  赎回: Bitcoin Up or Down - March 1, 10AM ET  indexSets:[1, 2]  ~$4.00
+    ❌ 异常: {'code': -32000, 'message': 'replacement transaction underpriced'}
+  赎回: Will the price of Bitcoin be above $66,0  indexSets:[1, 2]  ~$2.00
+    ❌ 异常: {'code': -32000, 'message': 'replacement transaction underpriced'}
+
+赎回完成，估计回收: $41.17

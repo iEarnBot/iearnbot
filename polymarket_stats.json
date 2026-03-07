@@ -1,0 +1,333 @@
+{
+  "settled_bets": [
+    {
+      "cid": "0x6d143f245edcd095baff1bc91a17e07177f6a5bcbc2ed6f617ce1fdd5d35b715",
+      "title": "Bitcoin Up or Down on March 1?",
+      "outcome": "Up",
+      "entry_price": 0.5,
+      "result_price": 1.0,
+      "size": 35.0,
+      "won": true,
+      "pnl": 30.0,
+      "market_type": "BTC_direction",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x768222554f2536c3e750d363b4e79a00df187a1bca6c3675dc82e72b2700012e",
+      "title": "Cavaliers vs. Nets",
+      "outcome": "Cavaliers",
+      "entry_price": 0.5,
+      "result_price": 1.0,
+      "size": 12.0,
+      "won": true,
+      "pnl": 4.0,
+      "market_type": "NBA",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0xfc849164b1f2b6393bb7bfe14e4ea0212af353f70f74bb4b6f07d69723234ec3",
+      "title": "Bucks vs. Bulls",
+      "outcome": "Bucks",
+      "entry_price": 0.5,
+      "result_price": 0.0,
+      "size": 10.0,
+      "won": false,
+      "pnl": 4.0,
+      "market_type": "NBA",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x73155755d6eb0ce2a234b76c92352cd9bdd3250a422cac9e43790ce941654b89",
+      "title": "Blackhawks vs. Utah",
+      "outcome": "Blackhawks",
+      "entry_price": 0.5,
+      "result_price": 1.0,
+      "size": 6.0,
+      "won": true,
+      "pnl": 0.0,
+      "market_type": "NBA",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x36f1a2a44df4ba5036447486f1f4e86bb4d1407d76bfd9c35f3d1207f87c8ad5",
+      "title": "Timberwolves vs. Nuggets",
+      "outcome": "Nuggets",
+      "entry_price": 0.5,
+      "result_price": 0.0,
+      "size": 6.0,
+      "won": false,
+      "pnl": 0.0,
+      "market_type": "NBA",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x0bb53ade8791bcc72cadda44f27d7af9b7b12bd4a528abf00826b4cab2c50138",
+      "title": "Jets vs. Sharks",
+      "outcome": "Jets",
+      "entry_price": 0.5,
+      "result_price": 0.0,
+      "size": 5.0,
+      "won": false,
+      "pnl": 0.0,
+      "market_type": "NHL",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x3fcbaed95aa299105ae7a51706f2c350b9978c247b96f4b931e7e16e296ed13a",
+      "title": "Trail Blazers vs. Hawks",
+      "outcome": "Trail Blazers",
+      "entry_price": 0.5,
+      "result_price": 0.0,
+      "size": 5.0,
+      "won": false,
+      "pnl": 0.0,
+      "market_type": "NBA",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0xa48e34d0ac1b4b05f158f6715a643db2b91532d6ccc96202f2f8988d3c774c70",
+      "title": "Bitcoin Up or Down - March 1, 4PM ET",
+      "outcome": "Up",
+      "entry_price": 0.5,
+      "result_price": 1.0,
+      "size": 5.0,
+      "won": true,
+      "pnl": 0.0,
+      "market_type": "BTC_direction",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x1feb9dfc82cba526c2c79fcc2e5fde7e7c03f78e09603e07f1bcd22ce864a1fc",
+      "title": "Grizzlies vs. Pacers",
+      "outcome": "Pacers",
+      "entry_price": 0.5,
+      "result_price": 0.0,
+      "size": 5.0,
+      "won": false,
+      "pnl": 0.0,
+      "market_type": "NBA",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x73b5e46f7621408f39bb123b76496521adbf07dd2740265761dfb37c61b8587d",
+      "title": "Pistons vs. Magic",
+      "outcome": "Magic",
+      "entry_price": 0.5,
+      "result_price": 0.0,
+      "size": 5.0,
+      "won": false,
+      "pnl": 0.0,
+      "market_type": "NBA",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x4cb30e6a51860d6be96ebaed26cbf8b15195e54877670f965a00ed685af65c6e",
+      "title": "Bitcoin Up or Down - March 1, 1PM ET",
+      "outcome": "Up",
+      "entry_price": 0.5,
+      "result_price": 1.0,
+      "size": 5.0,
+      "won": true,
+      "pnl": 0.0,
+      "market_type": "BTC_direction",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x583f501d9b1415446f655cb87f43b7e90e428cb00596cdde8afd22a97bd7bf03",
+      "title": "Counter-Strike: FUT Esports vs M80 (BO3) - ESL Pro",
+      "outcome": "M80",
+      "entry_price": 0.5,
+      "result_price": 0.0,
+      "size": 5.0,
+      "won": false,
+      "pnl": 0.0,
+      "market_type": "Esports",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x0b3c5ec8623efb4c12698346af32ced29f2662cfa20d3f35fb9965083833cefc",
+      "title": "Blues vs. Wild",
+      "outcome": "Wild",
+      "entry_price": 0.5,
+      "result_price": 0.0,
+      "size": 4.0,
+      "won": false,
+      "pnl": 0.0,
+      "market_type": "NHL",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x722775cccae9eb6d02f232b9a1dc4432eba9b47474dcaee28c5b67994e25e9cf",
+      "title": "Blues vs. Wild: O/U 6.5",
+      "outcome": "Under",
+      "entry_price": 0.5,
+      "result_price": 1.0,
+      "size": 4.0,
+      "won": true,
+      "pnl": 0.0,
+      "market_type": "NHL",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x920aaed19e8665dd291c63a9ab5f398dbbff5f51fa279f4c3f45dca00d3cf2b4",
+      "title": "Bitcoin Up or Down - March 1, 5PM ET",
+      "outcome": "Down",
+      "entry_price": 0.5,
+      "result_price": 1.0,
+      "size": 4.0,
+      "won": true,
+      "pnl": 0.0,
+      "market_type": "BTC_direction",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x20683c59b213d75abdabf8502f5a053e24266b422db7530691503748dbcae6f7",
+      "title": "Panthers vs. Islanders",
+      "outcome": "Panthers",
+      "entry_price": 0.5,
+      "result_price": 0.0,
+      "size": 4.0,
+      "won": false,
+      "pnl": 0.0,
+      "market_type": "NHL",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x39e5c43456cbf9099eba399c69717a93274212b8b4954640f824a2b5d5a85df4",
+      "title": "Counter-Strike: NIP vs Legacy (BO3) - ESL Pro Leag",
+      "outcome": "Legacy",
+      "entry_price": 0.5,
+      "result_price": 1.0,
+      "size": 3.0,
+      "won": true,
+      "pnl": 0.0,
+      "market_type": "Esports",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x144fc41b935736dd861af6f0346a485531c65abde943c051ae4a50a4202d75b4",
+      "title": "Spread: Bucks (-2.5)",
+      "outcome": "Bucks",
+      "entry_price": 0.5,
+      "result_price": 0.0,
+      "size": 3.0,
+      "won": false,
+      "pnl": 0.0,
+      "market_type": "NBA",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0xd4b56aa9177bd678f8bd919e2d7c009b309db213786a198a7c5534338db74f8a",
+      "title": "Arsenal FC vs. Chelsea FC: Both Teams to Score",
+      "outcome": "Yes",
+      "entry_price": 0.5,
+      "result_price": 1.0,
+      "size": 3.0,
+      "won": true,
+      "pnl": 0.0,
+      "market_type": "Football_EU",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0xb4eddde4581c685ff2cb1591e3199924411d04748baefd14e1eef9338524bd2b",
+      "title": "Bitcoin Up or Down - March 1, 10AM ET",
+      "outcome": "Up",
+      "entry_price": 0.5,
+      "result_price": 0.0,
+      "size": 2.0,
+      "won": false,
+      "pnl": 0.0,
+      "market_type": "BTC_direction",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    },
+    {
+      "cid": "0x95236a56c94c0d48ef11696078526a182086e5a9d963c3fef2a9e690c3edfb09",
+      "title": "Will the price of Bitcoin be above $66,000 on Marc",
+      "outcome": "No",
+      "entry_price": 0.5,
+      "result_price": 0.0,
+      "size": 1.0,
+      "won": false,
+      "pnl": 0.0,
+      "market_type": "BTC_direction",
+      "price_bucket": "0.50-0.65",
+      "settled_at": "2026-03-02T06:11:39.893169+00:00"
+    }
+  ],
+  "strategy_stats": {},
+  "price_range_stats": {
+    "0.50-0.65": {
+      "win": 9,
+      "lose": 12
+    }
+  },
+  "market_type_stats": {
+    "BTC_direction": {
+      "win": 4,
+      "lose": 2,
+      "pnl": 30.0
+    },
+    "NBA": {
+      "win": 2,
+      "lose": 6,
+      "pnl": 8.0
+    },
+    "NHL": {
+      "win": 1,
+      "lose": 3,
+      "pnl": 0.0
+    },
+    "Esports": {
+      "win": 1,
+      "lose": 1,
+      "pnl": 0.0
+    },
+    "Football_EU": {
+      "win": 1,
+      "lose": 0,
+      "pnl": 0.0
+    }
+  },
+  "clob_stats": {
+    "success": 52,
+    "fail": 30,
+    "rate": 0.634
+  },
+  "params_history": [
+    {
+      "timestamp": "2026-03-02T06:11:39.893169+00:00",
+      "changes": [
+        "\u5e02\u573a\u7c7b\u578b [NBA] \u80dc\u738725% < 35%\uff0c\u8df3\u8fc7\u6b64\u7c7b\u5e02\u573a"
+      ],
+      "params": {
+        "disabled_market_types": [
+          "NBA"
+        ],
+        "boosted_market_types": [],
+        "min_price": 0.35,
+        "updated_at": "2026-03-02T06:11:39.893169+00:00"
+      }
+    }
+  ],
+  "last_run": "2026-03-02T16:14:46.571651+00:00"
+}
