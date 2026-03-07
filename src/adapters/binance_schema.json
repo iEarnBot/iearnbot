@@ -1,0 +1,27 @@
+{
+  "name": "binance",
+  "display_name": "Binance",
+  "description": "World's largest crypto exchange by trading volume.",
+  "url": "https://binance.com",
+  "auth": {
+    "type": "api_key",
+    "fields": [
+      "api_key",
+      "api_secret"
+    ]
+  },
+  "endpoints": {
+    "markets": "GET /api/v3/exchangeInfo",
+    "price": "GET /api/v3/ticker/price",
+    "positions": "GET /api/v3/account",
+    "place_order": "POST /api/v3/order",
+    "cancel_order": "DELETE /api/v3/order"
+  },
+  "rate_limit": {
+    "calls_per_minute": 1200
+  },
+  "trading_enabled": false,
+  "generated_at": "2026-03-07T08:21:52",
+  "status": "skeleton",
+  "notes": "Requires signed requests with HMAC-SHA256 for private endpoints."
+}

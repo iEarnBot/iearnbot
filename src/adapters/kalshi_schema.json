@@ -1,0 +1,27 @@
+{
+  "name": "kalshi",
+  "display_name": "Kalshi",
+  "description": "CFTC-regulated prediction market for event contracts.",
+  "url": "https://kalshi.com",
+  "auth": {
+    "type": "api_key",
+    "fields": [
+      "api_key",
+      "api_secret"
+    ]
+  },
+  "endpoints": {
+    "markets": "GET /markets",
+    "price": "GET /markets/{ticker}",
+    "positions": "GET /portfolio/positions",
+    "place_order": "POST /portfolio/orders",
+    "cancel_order": "DELETE /portfolio/orders/{order_id}"
+  },
+  "rate_limit": {
+    "calls_per_minute": 60
+  },
+  "trading_enabled": false,
+  "generated_at": "2026-03-07T08:22:09",
+  "status": "skeleton",
+  "notes": "RSA key-pair or API-key auth depending on account type."
+}
