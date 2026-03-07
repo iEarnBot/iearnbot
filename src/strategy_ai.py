@@ -23,18 +23,63 @@ load_dotenv()
 # ── SkillPay gate ──────────────────────────────────────────────────────────
 from skillpay import charge_or_abort
 
-# ── AI client (OpenRouter or direct Anthropic) ────────────────────────────
-try:
-    import openai
-    AI_BASE_URL = "https://openrouter.ai/api/v1"
-    AI_MODEL    = os.getenv("AI_MODEL", "anthropic/claude-3-haiku")
-    ai_client   = openai.OpenAI(
-        api_key=os.getenv("OPENROUTER_API_KEY", ""),
-        base_url=AI_BASE_URL,
-    )
-    USE_AI = bool(os.getenv("OPENROUTER_API_KEY"))
-except ImportError:
-    USE_AI = False
+def _call_proxy(messages: list, model: str = None) -> str:
+    """
+    Call LLM via iearn.bot proxy (no API key needed in client).
+    Falls back to direct OpenRouter if user has own key.
+    """
+    if USE_OWN_KEY:
+        # Max tier: direct call
+        resp = ai_client.chat.completions.create(
+            model=model or AI_MODEL,
+            messages=messages,
+            max_tokens=1200,
+            temperature=0.3,
+        )
+        return resp.choices[0].message.content.strip()
+
+    # Pro tier: call iearn.bot proxy
+    user_id = os.getenv("SKILLPAY_USER_ID", "")
+    payload = {
+        "messages": messages,
+        "user_id": user_id,
+        "model": model or AI_MODEL,
+    }
+    resp = requests.post(IEARN_PROXY_URL, json=payload, timeout=60)
+    resp.raise_for_status()
+    data = resp.json()
+    if not data.get("ok"):
+        if data.get("insufficient"):
+            pay_url = data.get("payment_url", "https://iearn.bot/#pricing")
+            print(f"❌ Insufficient balance ({data.get('balance', 0):.3f} USDT)")
+            print(f"   Top up here → {pay_url}")
+            raise SystemExit(1)
+        raise RuntimeError(data.get("error", "Proxy error"))
+    return data["content"].strip()
+
+# ── AI client ────────────────────────────────────────────────────────────
+# Priority:
+#   1. iearn.bot proxy (default, no key needed, SkillPay billing)
+#   2. Self-hosted OpenRouter key (Max tier)
+IEARN_PROXY_URL = os.getenv("IEARN_PROXY_URL", "https://iearn.bot/api/chat")
+AI_MODEL        = os.getenv("AI_MODEL", "anthropic/claude-3-haiku")
+
+# Max tier: user brings own OpenRouter key (bypasses proxy)
+_own_key = os.getenv("OPENROUTER_API_KEY", "")
+if _own_key:
+    try:
+        import openai
+        ai_client = openai.OpenAI(
+            api_key=_own_key,
+            base_url="https://openrouter.ai/api/v1",
+        )
+        USE_OWN_KEY = True
+    except ImportError:
+        USE_OWN_KEY = False
+else:
+    USE_OWN_KEY = False
+
+USE_AI = True  # proxy is always available
 
 STRATEGY_DIR = Path("data/strategies")
 STRATEGY_DIR.mkdir(parents=True, exist_ok=True)
@@ -215,30 +260,18 @@ def generate_strategy(description: str, strategy_num: int = 4) -> dict:
     """
     print(f"\n🤖 Generating strategy: \"{description}\"")
 
-    # ── Early exit if no AI key (do NOT charge) ────────────────────────
+    # ── Early exit if no AI (do NOT charge) ───────────────────────────
     if not USE_AI:
-        print(
-            "⚠️  No AI key configured. Set OPENROUTER_API_KEY in .env for AI strategy generation.\n"
-            "   Or use SkillPay-powered AI (coming soon)."
-        )
+        print("⚠️  AI proxy unavailable.")
         return {}
 
-    # ── BILLING GATE (must pass before AI call) ────────────────────────
-    charge_or_abort()   # exits with top-up link if balance < 0.01 USDT
-
-    # ── AI CALL ────────────────────────────────────────────────────────
+    # ── AI CALL (via iearn.bot proxy, billing handled server-side) ────
     print(f"   Model: {AI_MODEL}")
-    resp = ai_client.chat.completions.create(
-        model=AI_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user",   "content": description},
-        ],
-        max_tokens=800,
-        temperature=0.3,
-    )
+    raw = _call_proxy([
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user",   "content": description},
+    ])
 
-    raw = resp.choices[0].message.content.strip()
     strategy = json.loads(raw)
 
     # ── SAVE ───────────────────────────────────────────────────────────
@@ -280,27 +313,16 @@ def generate_strategy_v2(content: str, description: str = "", strategy_num: int 
     # ── Early exit if no AI key (do NOT charge) ────────────────────────
     if not USE_AI:
         print(
-            "⚠️  No AI key configured. Set OPENROUTER_API_KEY in .env for AI strategy generation.\n"
-            "   Or use SkillPay-powered AI (coming soon)."
+            "⚠️  AI proxy unavailable."
         )
         return _template_strategy_v2(description or content[:100], strategy_num)
 
-    # ── BILLING GATE (must pass before AI call) ────────────────────────
-    charge_or_abort()   # exits with top-up link if balance < 0.01 USDT
-
-    # ── AI CALL ────────────────────────────────────────────────────────
+    # ── AI CALL (via iearn.bot proxy, billing handled server-side) ────
     print(f"   Model: {AI_MODEL}")
-    resp = ai_client.chat.completions.create(
-        model=AI_MODEL,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT_V2},
-            {"role": "user",   "content": user_message},
-        ],
-        max_tokens=1200,
-        temperature=0.3,
-    )
-
-    raw = resp.choices[0].message.content.strip()
+    raw = _call_proxy([
+        {"role": "system", "content": SYSTEM_PROMPT_V2},
+        {"role": "user",   "content": user_message},
+    ])
 
     # Strip markdown code fences if present
     raw = re.sub(r'^```(?:json)?\s*', '', raw)
