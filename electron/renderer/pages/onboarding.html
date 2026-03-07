@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdn.jsdelivr.net; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline';">
+  <title>欢迎 — iEarn.Bot</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    /* ── Wizard Shell ──────────────────────────────────────────────── */
+    .onboard-root {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: var(--bg, #060d1a);
+      color: var(--text, #e2e8f0);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    /* ── Progress Bar ──────────────────────────────────────────────── */
+    .wizard-progress {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 20px 0 8px;
+    }
+    .wp-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--border, #1e2d45);
+      transition: all 0.3s;
+    }
+    .wp-dot.active { background: var(--accent, #f97316); width: 24px; border-radius: 4px; }
+    .wp-dot.done   { background: rgba(249,115,22,0.4); }
+    .wp-line {
+      width: 32px; height: 1px;
+      background: var(--border, #1e2d45);
+    }
+
+    /* ── Steps ─────────────────────────────────────────────────────── */
+    .wizard-step { display: none; flex: 1; padding: 0 24px 40px; }
+    .wizard-step.active { display: block; }
+
+    /* ── Step 1: Hero ──────────────────────────────────────────────── */
+    .onboard-hero {
+      text-align: center;
+      padding: 32px 0 28px;
+    }
+    .onboard-hero h1 {
+      font-size: 28px;
+      font-weight: 800;
+      margin: 0 0 8px;
+      background: linear-gradient(135deg, #f97316, #fbbf24);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .onboard-hero p {
+      font-size: 14px;
+      color: var(--subtle, #64748b);
+      margin: 0 0 32px;
+    }
+    .choice-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      max-width: 520px;
+      margin: 0 auto;
+    }
+    .choice-card {
+      background: var(--card, #0d1b2e);
+      border: 1.5px solid var(--border, #1e2d45);
+      border-radius: 16px;
+      padding: 24px 16px 20px;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+      text-align: center;
+      user-select: none;
+    }
+    .choice-card:hover {
+      border-color: rgba(249,115,22,0.5);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 32px rgba(249,115,22,0.12);
+    }
+    .choice-card.primary {
+      border-color: rgba(249,115,22,0.4);
+      background: rgba(249,115,22,0.06);
+    }
+    .choice-icon { font-size: 32px; margin-bottom: 10px; }
+    .choice-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text, #e2e8f0);
+      margin-bottom: 6px;
+    }
+    .choice-sub {
+      font-size: 12px;
+      color: var(--subtle, #64748b);
+      line-height: 1.5;
+    }
+    .choice-badge {
+      position: absolute;
+      top: -1px; right: -1px;
+      background: var(--accent, #f97316);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 0 14px 0 8px;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Step 2: Official Strategy Cards ───────────────────────────── */
+    .step2-header {
+      text-align: center;
+      padding: 28px 0 20px;
+    }
+    .step2-header h2 {
+      font-size: 20px;
+      font-weight: 700;
+      margin: 0 0 6px;
+    }
+    .step2-header p {
+      font-size: 13px;
+      color: var(--subtle, #64748b);
+      margin: 0;
+    }
+    .template-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    .template-card {
+      background: var(--card, #0d1b2e);
+      border: 1.5px solid var(--border, #1e2d45);
+      border-radius: 14px;
+      padding: 18px;
+      transition: border-color 0.2s;
+    }
+    .template-card:hover { border-color: rgba(249,115,22,0.4); }
+    .tcard-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .tcard-name {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text, #e2e8f0);
+    }
+    .tcard-badges { display: flex; gap: 5px; flex-wrap: wrap; margin-left: 8px; }
+    .badge-cat {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      white-space: nowrap;
+    }
+    .badge-crypto   { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+    .badge-politics { background: rgba(99,102,241,0.15); color: #818cf8; border: 1px solid rgba(99,102,241,0.3); }
+    .badge-news     { background: rgba(52,211,153,0.15); color: #34d399; border: 1px solid rgba(52,211,153,0.3); }
+    .badge-beginner     { background: rgba(34,197,94,0.12); color: #4ade80; border: 1px solid rgba(34,197,94,0.2); }
+    .badge-intermediate { background: rgba(249,115,22,0.12); color: #fb923c; border: 1px solid rgba(249,115,22,0.2); }
+    .badge-advanced     { background: rgba(239,68,68,0.12); color: #f87171; border: 1px solid rgba(239,68,68,0.2); }
+    .tcard-desc {
+      font-size: 12px;
+      color: var(--subtle, #64748b);
+      line-height: 1.55;
+      margin-bottom: 12px;
+    }
+    .tcard-params {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+      margin-bottom: 12px;
+    }
+    .tcard-param {
+      background: var(--bg2, #0a1628);
+      border: 1px solid var(--border, #1e2d45);
+      border-radius: 8px;
+      padding: 6px 8px;
+      text-align: center;
+    }
+    .tcard-param-val {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--accent, #f97316);
+    }
+    .tcard-param-key {
+      font-size: 10px;
+      color: var(--subtle, #64748b);
+      margin-top: 2px;
+    }
+    .tcard-stats {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 14px;
+      font-size: 12px;
+    }
+    .tcard-stat { display: flex; flex-direction: column; gap: 1px; }
+    .tcard-stat-val {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text, #e2e8f0);
+    }
+    .tcard-stat-val.green { color: #4ade80; }
+    .tcard-stat-key { color: var(--subtle, #64748b); font-size: 11px; }
+    .tcard-actions { display: flex; gap: 8px; }
+    .btn-use {
+      flex: 1;
+      padding: 9px;
+      border-radius: 8px;
+      border: none;
+      background: var(--accent, #f97316);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+    .btn-use:hover { opacity: 0.88; }
+    .btn-detail {
+      flex: 1;
+      padding: 9px;
+      border-radius: 8px;
+      border: 1.5px solid var(--border, #1e2d45);
+      background: transparent;
+      color: var(--text, #e2e8f0);
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .btn-detail:hover { border-color: rgba(249,115,22,0.5); }
+
+    /* ── Custom AI Gen Card ────────────────────────────────────────── */
+    .custom-gen-card {
+      background: var(--card, #0d1b2e);
+      border: 1.5px solid var(--border, #1e2d45);
+      border-radius: 14px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .custom-gen-card .section-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text, #e2e8f0);
+      margin-bottom: 4px;
+    }
+    .custom-gen-card label {
+      font-size: 12px;
+      color: var(--subtle, #64748b);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .char-count {
+      font-size: 11px;
+      color: var(--subtle, #64748b);
+      margin-left: auto;
+    }
+    .char-warning {
+      font-size: 12px;
+      color: #ef4444;
+      background: rgba(239,68,68,0.08);
+      border: 1px solid rgba(239,68,68,0.25);
+      border-radius: 6px;
+      padding: 6px 10px;
+    }
+    .custom-gen-card input[type="url"],
+    .custom-gen-card textarea,
+    .custom-gen-card select {
+      width: 100%;
+      box-sizing: border-box;
+      background: var(--bg2, #0a1628);
+      border: 1px solid var(--border, #1e2d45);
+      border-radius: 8px;
+      color: var(--text, #e2e8f0);
+      font-size: 13px;
+      padding: 9px 12px;
+      outline: none;
+      transition: border-color 0.2s;
+      font-family: inherit;
+    }
+    .custom-gen-card input[type="url"]:focus,
+    .custom-gen-card textarea:focus,
+    .custom-gen-card select:focus {
+      border-color: rgba(249,115,22,0.5);
+    }
+    .custom-gen-card textarea {
+      resize: vertical;
+      min-height: 90px;
+    }
+    .btn-generate {
+      padding: 12px;
+      border-radius: 10px;
+      border: none;
+      background: linear-gradient(135deg, #f97316, #ea580c);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      margin-top: 4px;
+    }
+    .btn-generate:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-generate:active { transform: translateY(0); }
+
+    /* ── Navigation ────────────────────────────────────────────────── */
+    .wizard-nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 24px 0;
+    }
+    .btn-back {
+      background: transparent;
+      border: 1px solid var(--border, #1e2d45);
+      color: var(--subtle, #64748b);
+      padding: 7px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .btn-back:hover { color: var(--text); border-color: var(--text); }
+    .step-indicator {
+      font-size: 12px;
+      color: var(--subtle, #64748b);
+    }
+
+    /* ── Detail Modal ──────────────────────────────────────────────── */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: var(--card, #0d1b2e);
+      border: 1.5px solid var(--border, #1e2d45);
+      border-radius: 18px;
+      padding: 24px;
+      max-width: 480px;
+      width: 100%;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    .modal-title {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      color: var(--text, #e2e8f0);
+    }
+    .modal-close {
+      float: right;
+      background: transparent;
+      border: none;
+      color: var(--subtle, #64748b);
+      font-size: 18px;
+      cursor: pointer;
+      line-height: 1;
+    }
+    .modal-close:hover { color: var(--text); }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 7px 0;
+      border-bottom: 1px solid rgba(30,45,69,0.6);
+      font-size: 13px;
+    }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-key { color: var(--subtle, #64748b); min-width: 100px; }
+    .detail-val { color: var(--text, #e2e8f0); font-weight: 600; text-align: right; }
+    .detail-tags { display: flex; gap: 5px; flex-wrap: wrap; justify-content: flex-end; }
+    .tag-chip {
+      font-size: 10px;
+      padding: 2px 7px;
+      border-radius: 6px;
+      background: rgba(249,115,22,0.12);
+      color: var(--accent, #f97316);
+      border: 1px solid rgba(249,115,22,0.2);
+    }
+
+    /* ── Responsive ────────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      .choice-grid { grid-template-columns: 1fr; }
+      .template-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body class="onboard-root">
+
+  <!-- Progress Dots -->
+  <div class="wizard-progress">
+    <div class="wp-dot active" id="dot1"></div>
+    <div class="wp-line"></div>
+    <div class="wp-dot" id="dot2"></div>
+    <div class="wp-line"></div>
+    <div class="wp-dot" id="dot3"></div>
+  </div>
+
+  <!-- Navigation row (shown on steps 2+) -->
+  <div class="wizard-nav" id="wizardNav" style="display:none">
+    <button class="btn-back" onclick="prevStep()">&#8592; 返回</button>
+    <span class="step-indicator" id="stepIndicator">第 1 步，共 3 步</span>
+  </div>
+
+  <!-- ══ STEP 1: Welcome & Choice ═════════════════════════════════════ -->
+  <div class="wizard-step active" id="step1">
+    <div class="onboard-hero">
+      <h1>欢迎使用 iEarn.Bot &#x1F525;</h1>
+      <p>AI驱动的本地交易策略机器人</p>
+      <div class="choice-grid">
+        <div class="choice-card primary" onclick="startPolymarket()">
+          <div class="choice-icon">&#x1F30D;</div>
+          <div class="choice-title">开始体验</div>
+          <div class="choice-sub">全球最大预测市场<br/>Polymarket</div>
+          <div class="choice-badge">推荐新手</div>
+        </div>
+        <div class="choice-card" onclick="addCustomMarket()">
+          <div class="choice-icon">&#x2795;</div>
+          <div class="choice-title">增加市场</div>
+          <div class="choice-sub">粘贴任意交易所/市场链接<br/>AI自动学习并生成模版</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ STEP 2: Official Templates + Custom Gen ══════════════════════ -->
+  <div class="wizard-step" id="step2">
+    <div class="step2-header">
+      <h2>&#x1F4CB; 官方样板策略</h2>
+      <p>选择一个现成策略，一键部署，立即开始</p>
+    </div>
+
+    <div class="template-grid" id="templateGrid">
+      <!-- Rendered by JS -->
+    </div>
+
+    <!-- Custom AI Gen (Step 3 content embedded below templates) -->
+    <div class="custom-gen-card" id="customGenCard">
+      <div class="section-title">&#x1F916; 或者，让AI为你生成专属策略</div>
+      <label>粘贴策略思路链接或追踪钱包链接</label>
+      <input type="url" id="stratUrl" placeholder="X链接、YouTube链接、钱包地址..." />
+      <label>
+        或者粘贴文字描述
+        <span id="charCount" class="char-count">0/500</span>
+      </label>
+      <textarea id="stratText" maxlength="500"
+        placeholder="描述你的交易思路（最多500字）..."
+        oninput="updateCharCount(this)"></textarea>
+      <div id="charWarning" class="char-warning" style="display:none">&#x26A0;&#xFE0F; 已达到500字限制</div>
+      <select id="marketSel">
+        <option value="polymarket">&#x1F30D; Polymarket（预测市场）</option>
+      </select>
+      <button class="btn-generate" onclick="submitStrategyGen()">
+        &#x2728; 提交给AI生成策略
+      </button>
+    </div>
+  </div>
+
+  <!-- ══ STEP 3: Custom Market ════════════════════════════════════════ -->
+  <div class="wizard-step" id="step3">
+    <div class="step2-header">
+      <h2>&#x2795; 增加自定义市场</h2>
+      <p>粘贴任意交易所或市场链接，AI自动学习并生成适配模版</p>
+    </div>
+    <div class="custom-gen-card">
+      <div class="section-title">&#x1F517; 市场链接</div>
+      <label>交易所 / 市场 URL</label>
+      <input type="url" id="customMarketUrl" placeholder="https://... 任意交易所或预测市场链接" />
+      <label>
+        补充说明（可选）
+        <span id="customCharCount" class="char-count">0/500</span>
+      </label>
+      <textarea id="customMarketDesc" maxlength="500"
+        placeholder="描述你想在该市场做什么策略（可选）..."
+        oninput="updateCustomCharCount(this)"></textarea>
+      <button class="btn-generate" onclick="submitCustomMarket()">
+        &#x1F916; AI生成市场适配模版
+      </button>
+    </div>
+  </div>
+
+  <!-- ══ Detail Modal ══════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="detailModal" onclick="closeModal(event)">
+    <div class="modal-box">
+      <button class="modal-close" onclick="closeDetailModal()">&#x2715;</button>
+      <div class="modal-title" id="modalTitle">策略详情</div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <script>
+  'use strict';
+
+  // ── Official Strategies Data ──────────────────────────────────────────
+  var OFFICIAL_STRATEGIES = [
+    {
+      id: 'official_btc_momentum',
+      name: 'BTC Momentum Tracker',
+      description: 'Trades Polymarket BTC price prediction markets based on momentum signals. Buys YES when price is below 0.40 with strong macro tailwind.',
+      market: 'polymarket',
+      category: 'Crypto',
+      difficulty: 'Beginner',
+      tags: ['BTC', 'Momentum', 'Polymarket'],
+      stats: { win_rate: 0.64, avg_return: 0.18, users: 128 },
+      entry_condition: 'YES price < 0.40 AND 7-day trend positive',
+      exit_condition: 'YES price > 0.72 OR stop_loss triggered',
+      stop_loss: 0.25,
+      take_profit: 0.75,
+      max_position: 20,
+      trailing_stop: 0.12,
+      max_daily_loss: 15,
+      cooldown_period: 300,
+      kill_switch: false
+    },
+    {
+      id: 'official_election_pulse',
+      name: 'Election Pulse',
+      description: 'Captures election & political prediction market inefficiencies. Enters when polling data diverges from market price by >15%.',
+      market: 'polymarket',
+      category: 'Politics',
+      difficulty: 'Intermediate',
+      tags: ['Elections', 'Politics', 'Contrarian'],
+      stats: { win_rate: 0.58, avg_return: 0.22, users: 87 },
+      entry_condition: 'Price divergence from poll > 15% AND volume > baseline',
+      exit_condition: 'Event resolution OR trailing stop',
+      stop_loss: 0.20,
+      take_profit: 0.80,
+      max_position: 15,
+      trailing_stop: 0.10,
+      max_daily_loss: 12,
+      cooldown_period: 600,
+      kill_switch: false
+    },
+    {
+      id: 'official_news_fade',
+      name: 'News Fade',
+      description: 'Fades overreactions to breaking news. Sells YES at extremes (>0.85) when news impact is likely priced in and reversion is expected.',
+      market: 'polymarket',
+      category: 'News',
+      difficulty: 'Advanced',
+      tags: ['News', 'Mean-Reversion', 'Contrarian'],
+      stats: { win_rate: 0.55, avg_return: 0.31, users: 54 },
+      entry_condition: 'YES price > 0.85 AND news sentiment peak detected',
+      exit_condition: 'Price reverts to 0.65 OR 48h timeout',
+      stop_loss: 0.92,
+      take_profit: 0.62,
+      max_position: 10,
+      trailing_stop: 0.08,
+      max_daily_loss: 10,
+      cooldown_period: 900,
+      kill_switch: false
+    }
+  ];
+
+  var CATEGORY_BADGE = {
+    Crypto: 'badge-crypto',
+    Politics: 'badge-politics',
+    News: 'badge-news'
+  };
+  var DIFFICULTY_BADGE = {
+    Beginner: 'badge-beginner',
+    Intermediate: 'badge-intermediate',
+    Advanced: 'badge-advanced'
+  };
+
+  // ── Wizard State ──────────────────────────────────────────────────────
+  var currentStep = 1;
+
+  function goStep(n) {
+    document.querySelectorAll('.wizard-step').forEach(function(el, i) {
+      el.classList.toggle('active', i + 1 === n);
+    });
+    document.querySelectorAll('.wp-dot').forEach(function(dot, i) {
+      dot.classList.remove('active', 'done');
+      if (i + 1 === n)  dot.classList.add('active');
+      if (i + 1 < n)    dot.classList.add('done');
+    });
+    var nav = document.getElementById('wizardNav');
+    nav.style.display = n > 1 ? 'flex' : 'none';
+    document.getElementById('stepIndicator').textContent = '\u7b2c ' + n + ' \u6b65\uff0c\u5171 3 \u6b65';
+    currentStep = n;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function prevStep() { if (currentStep > 1) goStep(currentStep - 1); }
+
+  // ── Step 1 choices ────────────────────────────────────────────────────
+  function startPolymarket() {
+    renderTemplateGrid();
+    goStep(2);
+  }
+
+  function addCustomMarket() {
+    goStep(3);
+  }
+
+  // ── Render template cards ─────────────────────────────────────────────
+  function esc(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function renderTemplateGrid() {
+    var grid = document.getElementById('templateGrid');
+    grid.innerHTML = OFFICIAL_STRATEGIES.map(function(s, idx) {
+      return '<div class="template-card">' +
+        '<div class="tcard-top">' +
+          '<div class="tcard-name">' + esc(s.name) + '</div>' +
+          '<div class="tcard-badges">' +
+            '<span class="badge-cat ' + esc(CATEGORY_BADGE[s.category] || '') + '">' + esc(s.category) + '</span>' +
+            '<span class="badge-cat ' + esc(DIFFICULTY_BADGE[s.difficulty] || '') + '">' + esc(s.difficulty) + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="tcard-desc">' + esc(s.description) + '</div>' +
+        '<div class="tcard-params">' +
+          '<div class="tcard-param">' +
+            '<div class="tcard-param-val">' + (s.stop_loss * 100).toFixed(0) + '%</div>' +
+            '<div class="tcard-param-key">\u6b62\u635f</div>' +
+          '</div>' +
+          '<div class="tcard-param">' +
+            '<div class="tcard-param-val">' + (s.take_profit * 100).toFixed(0) + '%</div>' +
+            '<div class="tcard-param-key">\u6b62\u8d62</div>' +
+          '</div>' +
+          '<div class="tcard-param">' +
+            '<div class="tcard-param-val">$' + s.max_position + '</div>' +
+            '<div class="tcard-param-key">\u6700\u5927\u4ed3\u4f4d</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="tcard-stats">' +
+          '<div class="tcard-stat">' +
+            '<div class="tcard-stat-val green">' + (s.stats.win_rate * 100).toFixed(0) + '%</div>' +
+            '<div class="tcard-stat-key">\u80dc\u7387</div>' +
+          '</div>' +
+          '<div class="tcard-stat">' +
+            '<div class="tcard-stat-val green">+' + (s.stats.avg_return * 100).toFixed(0) + '%</div>' +
+            '<div class="tcard-stat-key">\u5e73\u5747\u6536\u76ca</div>' +
+          '</div>' +
+          '<div class="tcard-stat">' +
+            '<div class="tcard-stat-val">' + s.stats.users + '</div>' +
+            '<div class="tcard-stat-key

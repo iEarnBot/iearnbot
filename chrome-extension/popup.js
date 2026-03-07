@@ -173,6 +173,20 @@ function renderStrategyResult(s) {
 }
 
 async function deployStrategy(sJson) {
+  const tier = localStorage.getItem('selected_tier')
+  if (!tier) {
+    // 显示简单提示弹窗
+    const choice = confirm(
+      '部署策略需要付费：\n\n' +
+      '• Mini: $9.9/策略（本地运行永久免费）\n' +
+      '• Pro: $19/月（10个策略）\n' +
+      '• Max: $19.9/年（无限策略）\n\n' +
+      '点击确定前往官网选择方案'
+    )
+    if (choice) chrome.tabs.create({ url: 'https://iearn.bot/#pricing' })
+    return
+  }
+  // 已有套餐，正常部署
   const s = JSON.parse(sJson)
   try {
     await apiCall('generate_strategy', { name: s.name, description: s.description, market: s.market || 'polymarket' })
