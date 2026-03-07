@@ -1,4 +1,4 @@
-# iEranBot — MVP(dmg) 迭代计划（基于 2026-03-07 拍板）
+# iEranBot - MVP(dmg) 迭代计划（基于 2026-03-07 拍板）
 
 ## 0. 目标
 在 macOS 上交付一个可安装的 .dmg：
@@ -8,7 +8,7 @@
 - 本地绑定账户（API Key 本地存储）
 - 一键运行/停止/查看日志
 
-> Polymarket 作为已跑通模板：保持现状不变；新框架以“可插拔多市场适配器”形式接入。
+> Polymarket 作为已跑通模板：保持现状不变；新框架以"可插拔多市场适配器"形式接入。
 
 ---
 
@@ -75,7 +75,7 @@ MVP 方案：
 - 新建项目（Project）
 - 添加市场（Polymarket：选择模板；其他：输入 URL 生成 adapter 骨架）
 - 录入 API Key（本地保存）
-- 策略生成（先用“固定 prompt + 产出 python+params”跑通链路）
+- 策略生成（先用"固定 prompt + 产出 python+params"跑通链路）
 - 运行/停止（Python 子进程）
 - 日志查看（tail/过滤）
 
@@ -105,9 +105,14 @@ MVP 方案：
 
 ---
 
-## 7) 需要你确认的 5 个细节（决定实现方式）
-1) 软文链接：主要来源是公众号/知乎/推特/博客？是否需要登录/反爬处理？
-2) 策略生成：你更偏向输出“可读性强的 Python”还是“严格的 DSL 配置”？（我建议 MVP 直接 Python）
-3) 运行调度：MVP 先做“手动一键运行”，还是必须包含 cron 定时？
-4) 资金风控：是否强制必须有 max_position / max_daily_loss / kill-switch？
-5) Polymarket 模板：是否允许在新 App 内“导入已有本地脚本目录”，还是我们复制一份到 Project？
+## 7) 实现细节（2026-03-07 用户确认）
+1) 软文链接：X / YouTube 字幕为主；不做登录/反爬。
+   - 链接读取失败 → 引导用户直接粘贴文本，AI 以此为依据生成策略。
+2) 策略产物：必须有可视化策略编辑界面（参数可调整/可修改）；不止输出代码，要有图形化表单。
+3) 调度：手动一键运行 + 周期设定（分钟 / 小时 / 天 / 周 / 月）。
+4) 风控：量化风控应有尽有。必须包含：
+   - max_position（最大持仓）
+   - max_daily_loss（最大日亏损）
+   - kill-switch（一键熔断/暂停）
+   - 建议加：trailing_stop / max_drawdown / max_order_size / cooldown_period 等
+5) Polymarket 模板：复制一份到 Project 管理（不修改原始脚本）。
