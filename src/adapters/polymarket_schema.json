@@ -1,0 +1,8 @@
+{
+  "name": "Polymarket",
+  "url": "https://polymarket.com",
+  "auth": {"type": "private_key", "env": "POLYGON_PRIVATE_KEY"},
+  "categories": ["crypto", "politics", "sports", "science"],
+  "rate_limit": {"calls_per_minute": 30},
+  "trading_enabled": false
+}
