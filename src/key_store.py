@@ -24,6 +24,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 IS_MACOS = platform.system() == "Darwin"
 
+# Set to "1" by the Electron main process when launching Python subprocess.
+# When True, key storage may be handled by Electron's safeStorage via IPC
+# rather than direct Keychain CLI calls.
+RUNNING_IN_ELECTRON = os.getenv("IEARNBOT_ELECTRON", "0") == "1"
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
