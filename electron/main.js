@@ -108,18 +108,41 @@ function startPythonIPC() {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 
+  _pyLineBuffer = '';  // reset line buffer on (re)start
+
   pyProcess.stdout.on('data', (data) => {
-    // Parse JSON lines and broadcast push-events (no id) to all renderer windows
-    data.toString().split('\n').filter(Boolean).forEach(line => {
+    // Accumulate partial lines to handle chunk-split JSON
+    _pyLineBuffer += data.toString();
+    const lines = _pyLineBuffer.split('\n');
+    // Keep last (potentially incomplete) chunk in buffer
+    _pyLineBuffer = lines.pop();
+
+    lines.filter(Boolean).forEach(line => {
       try {
         const msg = JSON.parse(line);
-        // Only broadcast push events (not request responses — those are handled per-request)
+
+        // Route request responses to pending request handlers
+        if (msg.id && _pendingRequests.has(msg.id)) {
+          const pending = _pendingRequests.get(msg.id);
+          _pendingRequests.delete(msg.id);
+          clearTimeout(pending.timeoutHandle);
+          if (msg.ok) {
+            pending.resolve(msg);
+          } else {
+            pending.reject(new Error(msg.error || 'Unknown error'));
+          }
+          return;
+        }
+
+        // Broadcast push events (log tail, market updates, etc.)
         if (msg.event) {
           BrowserWindow.getAllWindows().forEach(win => {
             win.webContents.send('py:message', msg);
           });
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn('[Python IPC] JSON parse error:', e.message, 'line:', line.slice(0, 120));
+      }
     });
   });
 
@@ -130,6 +153,19 @@ function startPythonIPC() {
   pyProcess.on('exit', (code) => {
     console.log('[Python IPC] exited with code:', code);
     pyProcess = null;
+    // Reject all pending requests
+    _pendingRequests.forEach(({ reject, timeoutHandle }, id) => {
+      clearTimeout(timeoutHandle);
+      reject(new Error(`Python IPC server exited (code ${code})`));
+    });
+    _pendingRequests.clear();
+    // Auto-restart after 3s if app is still running
+    if (!app.isQuitting) {
+      setTimeout(() => {
+        console.log('[Python IPC] restarting...');
+        startPythonIPC();
+      }, 3000);
+    }
   });
 
   pyProcess.on('error', (err) => {
@@ -147,33 +183,15 @@ ipcMain.handle('py:send', (_, cmd) => {
     const id = cmd.id || `req-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     cmd.id = id;
 
-    let timeoutHandle = null;
-
-    const handler = (data) => {
-      data.toString().split('\n').filter(Boolean).forEach(line => {
-        try {
-          const msg = JSON.parse(line);
-          if (msg.id === id) {
-            if (timeoutHandle) clearTimeout(timeoutHandle);
-            pyProcess.stdout.removeListener('data', handler);
-            if (msg.ok) {
-              resolve(msg);
-            } else {
-              reject(new Error(msg.error || 'Unknown error'));
-            }
-          }
-        } catch (e) {}
-      });
-    };
-
-    pyProcess.stdout.on('data', handler);
-    pyProcess.stdin.write(JSON.stringify(cmd) + '\n');
-
-    // Timeout after 30s
-    timeoutHandle = setTimeout(() => {
-      pyProcess.stdout.removeListener('data', handler);
-      reject(new Error('py:send timeout for cmd: ' + cmd.cmd));
+    const timeoutHandle = setTimeout(() => {
+      if (_pendingRequests.has(id)) {
+        _pendingRequests.delete(id);
+        reject(new Error('py:send timeout for cmd: ' + cmd.cmd));
+      }
     }, 30000);
+
+    _pendingRequests.set(id, { resolve, reject, timeoutHandle });
+    pyProcess.stdin.write(JSON.stringify(cmd) + '\n');
   });
 });
 
@@ -312,6 +330,7 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', () => {
+  app.isQuitting = true;
   if (pythonProcess) pythonProcess.kill('SIGTERM');
   if (pyProcess) pyProcess.kill('SIGTERM');
 });

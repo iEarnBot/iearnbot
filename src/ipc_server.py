@@ -101,7 +101,14 @@ def handle_generate_strategy(args: dict) -> dict:
             log.warning(f"fetch_content failed for {url}: {e}")
     if text:
         content = (content + "\n" + text).strip() if content else text
-    strategy = generate_strategy_v2(content=content, description=text)
+
+    # Redirect stdout to stderr during strategy generation to keep IPC protocol clean
+    _orig_stdout = sys.stdout
+    sys.stdout = sys.stderr
+    try:
+        strategy = generate_strategy_v2(content=content, description=text)
+    finally:
+        sys.stdout = _orig_stdout
     return strategy
 
 

@@ -2,42 +2,42 @@
 name: V4_BTC_100k_March
 
 # 策略描述
-description: "BTC breakout strategy for Polymarket: Will BTC exceed 100k by end of March?"
+description: Trade BTC to exceed $100k by March 2023
 
 market_adapter: polymarket
 
 # 入场条件
 entry:
-  trigger: "BTC price breakout above 45% on 'Will BTC exceed 100k by end of March?' market"  # 触发条件描述
-  min_liquidity: 5000  # 最小流动性 (USDC)
-  max_spread: 0.05  # 最大买卖价差 (5%)
+  trigger: "BTC price crosses $100,000 threshold"  # 触发条件描述
+  min_liquidity: 10000  # 最小流动性 (USDC)
+  max_spread: 0.02  # 最大买卖价差 (5%)
   categories:  # 市场分类过滤
     - crypto
 
 # 仓位管理
 position:
   side: "YES"  # 方向: YES 或 NO
-  size_usdc: 10  # 单笔下注金额 (USDC)
-  max_positions: 5  # 最大同时持仓数
-  max_order_size: 15  # 单笔上限 (USDC)
-  max_position: 50  # 单市场最大持仓 (USDC)
+  size_usdc: 25  # 单笔下注金额 (USDC)
+  max_positions: 3  # 最大同时持仓数
+  max_order_size: 20  # 单笔上限 (USDC)
+  max_position: 75  # 单市场最大持仓 (USDC)
 
 # 退出条件
 exit:
-  take_profit: 0.8  # 止盈价格 (YES >= 0.80)
-  stop_loss: 0.3  # 止损价格 (YES <= 0.30)
-  trailing_stop: 0.1  # 追踪止损 (从高点回撤 10%)
+  take_profit: 0.7  # 止盈价格 (YES >= 0.80)
+  stop_loss: 0.45  # 止损价格 (YES <= 0.30)
+  trailing_stop: 0.15  # 追踪止损 (从高点回撤 10%)
   resolve_redeem: true  # 到期自动赎回
 
 # 风控
 risk:
-  max_daily_loss: 25  # 当日最大亏损 (USDC)
-  max_drawdown: 0.3  # 最大回撤 (30%)
-  cooldown_period: 300  # 止损后冷却 (秒)
-  kill_switch: false  # 紧急熔断开关
+  max_daily_loss: 15  # 当日最大亏损 (USDC)
+  max_drawdown: 0.25  # 最大回撤 (30%)
+  cooldown_period: 240  # 止损后冷却 (秒)
+  kill_switch: true  # 紧急熔断开关
 
 # 运行周期
 schedule:
   mode: interval  # interval / cron / manual
-  every: 15  # 间隔数值
+  every: 10  # 间隔数值
   unit: minutes  # minutes / hours / days / weeks / months

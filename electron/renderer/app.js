@@ -24,6 +24,7 @@ navigateTo(lastPage);
 // ── Status polling ───────────────────────────────────────
 const botStatusPill = document.getElementById('botStatusPill');
 const botStatusText = document.getElementById('botStatusText');
+const balanceDisplay = document.getElementById('balanceDisplay');
 
 async function refreshStatus() {
   try {
@@ -38,8 +39,29 @@ async function refreshStatus() {
   }
 }
 
+async function refreshBalance() {
+  try {
+    if (window.ipcApi?.pyCmd) {
+      const res = await window.ipcApi.pyCmd({ cmd: 'get_balances', args: {} });
+      const data = res?.data ?? {};
+      const usdc = typeof data.usdc === 'number' ? data.usdc.toFixed(2) : '—';
+      const native = typeof data.native === 'number' ? data.native.toFixed(4) : null;
+      balanceDisplay.textContent = native
+        ? `${usdc} USDC | ${native} MATIC`
+        : `${usdc} USDC`;
+    }
+  } catch (err) {
+    console.warn('[balance] refresh failed:', err.message);
+    if (balanceDisplay.textContent === '—') {
+      balanceDisplay.textContent = 'N/A';
+    }
+  }
+}
+
 refreshStatus();
+refreshBalance();
 setInterval(refreshStatus, 5000);
+setInterval(refreshBalance, 30000);  // refresh balance every 30s
 
 // ── Log forwarding to logs page ──────────────────────────
 if (window.ipcApi) {
