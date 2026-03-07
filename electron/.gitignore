@@ -1,0 +1,16 @@
+# Electron
+node_modules/
+dist/
+out/
+release/
+*.log
+.DS_Store
+
+# electron-builder
+*.blockmap
+*.dmg
+*.exe
+*.zip
+
+# Local env
+.env
