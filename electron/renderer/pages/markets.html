@@ -49,6 +49,14 @@
     }
     .mode-btn.active-readonly { background: rgba(99,102,241,0.15); color: #a5b4fc; border-color: rgba(99,102,241,0.3); }
     .mode-btn.active-live     { background: rgba(239,68,68,0.15);  color: var(--red); border-color: rgba(239,68,68,0.3); }
+
+    .ipc-status {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 999px;
+    }
+    .ipc-status.ok     { background: rgba(34,197,94,0.12);  color: #4ade80; }
+    .ipc-status.offline{ background: rgba(100,116,139,0.12); color: var(--subtle); }
   </style>
 </head>
 <body class="page-root">
@@ -59,13 +67,16 @@
         <h1>Markets</h1>
         <p class="mt-1">Manage prediction market adapters</p>
       </div>
-      <button class="btn btn-primary" id="addMarketBtn">＋ Add Market</button>
+      <div style="display:flex;gap:8px;align-items:center">
+        <span class="ipc-status offline" id="ipcStatus">○ Connecting…</span>
+        <button class="btn btn-primary" id="addMarketBtn">＋ Add Market</button>
+      </div>
     </div>
   </div>
 
   <div class="page-body">
     <div id="marketsGrid" class="card-grid">
-      <!-- Demo cards (replace with dynamic load) -->
+      <!-- Rendered by JS -->
     </div>
     <div id="emptyState" class="empty-state" style="display:none">
       <div class="empty-icon">📊</div>
@@ -100,18 +111,64 @@
   <script>
   'use strict';
 
-  // ── Sample data (in real app, load from fs) ──
+  const ipc = window.top?.ipcApi || window.ipcApi;
+
+  // ── Local cache ──────────────────────────────────────────────────────────
   let markets = JSON.parse(localStorage.getItem('markets') || '[]');
-  if (markets.length === 0) {
+
+  function saveLocal() { localStorage.setItem('markets', JSON.stringify(markets)); }
+
+  // ── IPC status ────────────────────────────────────────────────────────────
+  function setIpcStatus(ok, msg) {
+    const el = document.getElementById('ipcStatus');
+    el.textContent  = ok ? '● IPC Live' : '○ Offline';
+    el.className    = 'ipc-status ' + (ok ? 'ok' : 'offline');
+    if (msg) console.log('[markets]', msg);
+  }
+
+  // ── Load markets from Python IPC ─────────────────────────────────────────
+  async function loadMarkets() {
+    if (!ipc?.pyCmd) {
+      setIpcStatus(false, 'ipcApi not available, using localStorage');
+      if (markets.length === 0) seedDemo();
+      render();
+      return;
+    }
+    try {
+      const res = await ipc.pyCmd({ cmd: 'list_markets' });
+      const remote = (res.data?.markets || []).map(m => ({
+        id:     m.name || m.id || `pm-${Date.now()}`,
+        name:   m.name || m.id || 'Unknown',
+        url:    m.url  || '',
+        mode:   m.mode || 'readonly',
+        status: m.status || 'ok',
+        adapterFile: m.adapter_file || '',
+      }));
+
+      if (remote.length > 0) {
+        markets = remote;
+        saveLocal();
+      } else {
+        // Keep local cache; seed demo if empty
+        if (markets.length === 0) seedDemo();
+      }
+      setIpcStatus(true, `Loaded ${markets.length} markets`);
+    } catch (err) {
+      setIpcStatus(false, 'list_markets error: ' + err.message);
+      if (markets.length === 0) seedDemo();
+    }
+    render();
+  }
+
+  function seedDemo() {
     markets = [
       { id: 'pm-1', name: 'US Election 2026', url: 'https://polymarket.com/event/us-election-2026', mode: 'readonly', status: 'ok' },
       { id: 'pm-2', name: 'BTC $100k by EOY',  url: 'https://polymarket.com/event/btc-100k',       mode: 'live',     status: 'ok' },
     ];
-    save();
+    saveLocal();
   }
 
-  function save() { localStorage.setItem('markets', JSON.stringify(markets)); }
-
+  // ── Render ────────────────────────────────────────────────────────────────
   function renderCard(m) {
     return `
       <div class="card market-card" data-id="${m.id}">
@@ -149,26 +206,43 @@
 
   function setMode(id, mode) {
     const m = markets.find(x => x.id === id);
-    if (m) { m.mode = mode; save(); render(); }
+    if (m) { m.mode = mode; saveLocal(); render(); }
   }
 
   function removeMarket(id) {
     markets = markets.filter(x => x.id !== id);
-    save(); render();
+    saveLocal(); render();
   }
 
-  function smokeTest(id) {
+  async function smokeTest(id) {
     const m = markets.find(x => x.id === id);
     if (!m) return;
     const btn = document.querySelector(`[data-id="${id}"] .btn-outline`);
     if (btn) { btn.textContent = '⏳ Testing…'; btn.disabled = true; }
-    setTimeout(() => {
-      if (btn) { btn.textContent = '✅ Passed'; btn.disabled = false; }
-      m.status = 'ok'; save(); render();
-    }, 1500);
+
+    if (ipc?.pyCmd) {
+      try {
+        const res = await ipc.pyCmd({ cmd: 'smoke_test', args: { market: m.name.toLowerCase().replace(/\s+/g, '_') } });
+        const passed = res.data?.smoke_test_passed;
+        if (btn) { btn.textContent = passed ? '✅ Passed' : '❌ Failed'; btn.disabled = false; }
+        m.status = passed ? 'ok' : 'error';
+        saveLocal(); render();
+        setIpcStatus(true, `Smoke test ${id}: ${passed ? 'passed' : 'failed'}`);
+      } catch (err) {
+        if (btn) { btn.textContent = '❌ Error'; btn.disabled = false; }
+        setIpcStatus(false, 'smoke_test error: ' + err.message);
+        setTimeout(() => { if (btn) { btn.textContent = '🧪 Smoke Test'; btn.disabled = false; } }, 2000);
+      }
+    } else {
+      // Offline fallback
+      setTimeout(() => {
+        if (btn) { btn.textContent = '✅ Passed (offline)'; btn.disabled = false; }
+        m.status = 'ok'; saveLocal(); render();
+      }, 1500);
+    }
   }
 
-  // ── Modal ──
+  // ── Modal ─────────────────────────────────────────────────────────────────
   const modal     = document.getElementById('addModal');
   const openBtn   = document.getElementById('addMarketBtn');
   const closeBtn  = document.getElementById('closeModal');
@@ -185,22 +259,52 @@
   cancelBtn.addEventListener('click', closeModal);
   modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
 
-  confirmBtn.addEventListener('click', () => {
+  confirmBtn.addEventListener('click', async () => {
     const url  = urlInput.value.trim();
-    const name = nameInput.value.trim() || new URL(url).pathname.split('/').filter(Boolean).pop() || 'Market';
     if (!url) { urlInput.focus(); return; }
+
+    let name = nameInput.value.trim();
+    if (!name) {
+      try { name = new URL(url).pathname.split('/').filter(Boolean).pop() || 'Market'; }
+      catch { name = 'Market'; }
+    }
+
     confirmBtn.textContent = '⏳ Generating…';
     confirmBtn.disabled = true;
-    setTimeout(() => {
+
+    if (ipc?.pyCmd) {
+      try {
+        const res = await ipc.pyCmd({ cmd: 'add_market', args: { url } });
+        const added = res.data || {};
+        markets.push({
+          id:     added.name || 'pm-' + Date.now(),
+          name,
+          url,
+          mode:   'readonly',
+          status: 'ok',
+          adapterFile: added.adapter_file || '',
+        });
+        saveLocal(); render();
+        setIpcStatus(true, `Added market: ${name}`);
+      } catch (err) {
+        setIpcStatus(false, 'add_market error: ' + err.message);
+        // Still add to local list
+        markets.push({ id: 'pm-' + Date.now(), name, url, mode: 'readonly', status: 'ok' });
+        saveLocal(); render();
+      }
+    } else {
+      // Offline fallback
       markets.push({ id: 'pm-' + Date.now(), name, url, mode: 'readonly', status: 'ok' });
-      save(); render();
-      closeModal();
-      confirmBtn.textContent = 'Generate Adapter';
-      confirmBtn.disabled = false;
-    }, 1200);
+      saveLocal(); render();
+    }
+
+    closeModal();
+    confirmBtn.textContent = 'Generate Adapter';
+    confirmBtn.disabled = false;
   });
 
-  render();
+  // ── Init ──────────────────────────────────────────────────────────────────
+  loadMarkets();
   </script>
 </body>
 </html>

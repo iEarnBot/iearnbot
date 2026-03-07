@@ -65,9 +65,9 @@
     .log-level { width: 72px; flex-shrink: 0; font-weight: 800; }
     .log-msg { color: #e2e8f0; white-space: pre-wrap; word-break: break-word; flex: 1; }
 
-    .lvl-INFO { color: #93c5fd; }
+    .lvl-INFO    { color: #e2e8f0; }
     .lvl-WARNING { color: #fde68a; }
-    .lvl-ERROR { color: #fca5a5; }
+    .lvl-ERROR   { color: #fca5a5; }
 
     .auto-scroll {
       display: inline-flex;
@@ -99,6 +99,18 @@
       background: rgba(255,255,255,0.03);
       color: var(--text);
     }
+
+    .ipc-badge {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: rgba(34,197,94,0.12);
+      color: #4ade80;
+    }
+    .ipc-badge.offline {
+      background: rgba(100,116,139,0.15);
+      color: var(--subtle);
+    }
   </style>
 </head>
 <body class="page-root">
@@ -107,8 +119,9 @@
     <div class="page-header-row">
       <div>
         <h1>Logs</h1>
-        <p class="mt-1">Live stream (simulated tail -f). Python subprocess output will appear here.</p>
+        <p class="mt-1">Live log stream from Python IPC server</p>
       </div>
+      <span class="ipc-badge offline" id="ipcBadge">○ Connecting…</span>
     </div>
   </div>
 
@@ -141,12 +154,20 @@
   <script>
   'use strict';
 
-  const logView = document.getElementById('logView');
+  const ipc = window.top?.ipcApi || window.ipcApi;
+
+  const logView    = document.getElementById('logView');
   const autoScroll = document.getElementById('autoScroll');
-  const tabs = Array.from(document.querySelectorAll('.tab[data-filter]'));
+  const ipcBadge   = document.getElementById('ipcBadge');
+  const tabs       = Array.from(document.querySelectorAll('.tab[data-filter]'));
 
   let filter = 'ALL';
   let buffer = []; // {ts, level, text}
+
+  function setIpcBadge(ok) {
+    ipcBadge.textContent = ok ? '● IPC Live' : '○ Offline';
+    ipcBadge.className   = 'ipc-badge' + (ok ? '' : ' offline');
+  }
 
   function tsFmt(ts) {
     const d = new Date(ts);
@@ -180,12 +201,11 @@
     }
   }
 
-  function addLine({ level = 'INFO', text = '', ts = Date.now() }) {
+  function appendLog({ level = 'INFO', text = '', ts = Date.now() }) {
     if (!['INFO', 'WARNING', 'ERROR'].includes(level)) level = 'INFO';
     buffer.push({ level, text, ts });
     if (buffer.length > 5000) buffer = buffer.slice(-5000);
 
-    // Fast path append when filter matches (avoid rerender full list)
     if (shouldShow(level)) {
       const safeText = (text || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
       const node = document.createElement('div');
@@ -194,7 +214,7 @@
         <div class="log-ts">${tsFmt(ts)}</div>
         <div class="log-level lvl-${level}">${level}</div>
         <div class="log-msg">${safeText}</div>`;
-      // If empty placeholder exists, remove it
+      // Remove empty placeholder if present
       if (logView.children.length === 1 && logView.children[0].classList.contains('text-subtle')) {
         logView.innerHTML = '';
       }
@@ -203,7 +223,7 @@
     }
   }
 
-  // Filter tabs
+  // ── Filter tabs ───────────────────────────────────────────────────────────
   tabs.forEach(t => {
     t.addEventListener('click', () => {
       tabs.forEach(x => x.classList.remove('active'));
@@ -213,7 +233,7 @@
     });
   });
 
-  // Clear
+  // ── Clear ─────────────────────────────────────────────────────────────────
   function clearLogs() {
     buffer = [];
     render();
@@ -224,31 +244,56 @@
     if (isCmdK) { e.preventDefault(); clearLogs(); }
   });
 
-  // Receive streamed log lines from main via index -> postMessage
+  // ── Load historical logs via IPC ──────────────────────────────────────────
+  async function loadHistoricalLogs() {
+    if (!ipc?.pyCmd) {
+      setIpcBadge(false);
+      appendLog({ level: 'WARNING', text: 'ipcApi not available — running offline', ts: Date.now() });
+      return;
+    }
+    try {
+      const res = await ipc.pyCmd({ cmd: 'get_logs', args: { lines: 200, level: 'all' } });
+      const lines = res.data?.lines || [];
+      const note  = res.data?.note;
+      if (note) {
+        appendLog({ level: 'INFO', text: `[IPC] ${note}`, ts: Date.now() });
+      }
+      lines.forEach(line => {
+        const level = /ERROR/i.test(line) ? 'ERROR' : /WARNING|WARN/i.test(line) ? 'WARNING' : 'INFO';
+        appendLog({ level, text: line, ts: Date.now() });
+      });
+      setIpcBadge(true);
+    } catch (err) {
+      setIpcBadge(false);
+      appendLog({ level: 'ERROR', text: 'get_logs IPC error: ' + err.message, ts: Date.now() });
+    }
+  }
+
+  // ── Subscribe to real-time log push events ────────────────────────────────
+  if (ipc?.onPyEvent) {
+    ipc.onPyEvent(msg => {
+      if (msg.event === 'log') {
+        appendLog({
+          level: msg.level || 'INFO',
+          text:  msg.msg  || '',
+          ts:    msg.ts ? new Date(msg.ts).getTime() : Date.now(),
+        });
+        setIpcBadge(true);
+      }
+    });
+  }
+
+  // ── Also accept postMessage from parent frame (legacy) ────────────────────
   window.addEventListener('message', (e) => {
     if (e?.data?.type === 'log:line') {
       const payload = e.data.payload || {};
-      if (payload.text) addLine(payload);
+      if (payload.text) appendLog(payload);
     }
   });
 
-  // Simulated tail -f
-  const demo = [
-    { level: 'INFO', text: 'Engine initialized' },
-    { level: 'INFO', text: 'Loading markets registry…' },
-    { level: 'WARNING', text: 'No API key configured for market pm-1 (read-only mode)' },
-    { level: 'INFO', text: 'Scheduler tick: 0 jobs due' },
-    { level: 'ERROR', text: 'Sample error: connection refused (demo)' },
-  ];
-
-  let i = 0;
-  setInterval(() => {
-    const item = demo[i % demo.length];
-    addLine({ ...item, ts: Date.now() });
-    i++;
-  }, 1800);
-
+  // ── Init ──────────────────────────────────────────────────────────────────
   render();
+  loadHistoricalLogs();
   </script>
 </body>
 </html>

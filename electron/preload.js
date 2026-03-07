@@ -1,10 +1,14 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('ipcApi', {
-  // Python subprocess
+  // Python subprocess (legacy one-shot)
   runPython: (args) => ipcRenderer.invoke('python:run', args),
   stopPython: () => ipcRenderer.invoke('python:stop'),
   pythonStatus: () => ipcRenderer.invoke('python:status'),
+
+  // Persistent Python IPC server
+  pyCmd: (cmd) => ipcRenderer.invoke('py:send', cmd),
+  onPyEvent: (cb) => ipcRenderer.on('py:message', (_, msg) => cb(msg)),
 
   // File system
   readFile: (filePath) => ipcRenderer.invoke('fs:readFile', filePath),

@@ -6,7 +6,8 @@ const os = require('os');
 
 let mainWindow = null;
 let tray = null;
-let pythonProcess = null;
+let pythonProcess = null;   // legacy one-shot process (python:run)
+let pyProcess = null;       // persistent IPC server process
 let pythonPath = 'python3';
 
 // ──────────────────────────────────────────────
@@ -95,7 +96,87 @@ function createTray() {
 }
 
 // ──────────────────────────────────────────────
-// IPC: Python subprocess
+// Persistent Python IPC server
+// ──────────────────────────────────────────────
+function startPythonIPC() {
+  const scriptPath = path.join(__dirname, '..', 'src', 'ipc_server.py');
+  pyProcess = spawn(pythonPath, [scriptPath], {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, PYTHONPATH: path.join(__dirname, '..', 'src') },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+
+  pyProcess.stdout.on('data', (data) => {
+    // Parse JSON lines and broadcast push-events (no id) to all renderer windows
+    data.toString().split('\n').filter(Boolean).forEach(line => {
+      try {
+        const msg = JSON.parse(line);
+        // Only broadcast push events (not request responses — those are handled per-request)
+        if (msg.event) {
+          BrowserWindow.getAllWindows().forEach(win => {
+            win.webContents.send('py:message', msg);
+          });
+        }
+      } catch (e) {}
+    });
+  });
+
+  pyProcess.stderr.on('data', (data) => {
+    console.log('[Python IPC]', data.toString());
+  });
+
+  pyProcess.on('exit', (code) => {
+    console.log('[Python IPC] exited with code:', code);
+    pyProcess = null;
+  });
+
+  pyProcess.on('error', (err) => {
+    console.error('[Python IPC] spawn error:', err);
+    pyProcess = null;
+  });
+
+  console.log('[main] Python IPC server started, pid:', pyProcess.pid);
+}
+
+// IPC: send command to persistent Python IPC server
+ipcMain.handle('py:send', (_, cmd) => {
+  return new Promise((resolve, reject) => {
+    if (!pyProcess) return reject(new Error('Python IPC server not running'));
+    const id = cmd.id || `req-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    cmd.id = id;
+
+    let timeoutHandle = null;
+
+    const handler = (data) => {
+      data.toString().split('\n').filter(Boolean).forEach(line => {
+        try {
+          const msg = JSON.parse(line);
+          if (msg.id === id) {
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+            pyProcess.stdout.removeListener('data', handler);
+            if (msg.ok) {
+              resolve(msg);
+            } else {
+              reject(new Error(msg.error || 'Unknown error'));
+            }
+          }
+        } catch (e) {}
+      });
+    };
+
+    pyProcess.stdout.on('data', handler);
+    pyProcess.stdin.write(JSON.stringify(cmd) + '\n');
+
+    // Timeout after 30s
+    timeoutHandle = setTimeout(() => {
+      pyProcess.stdout.removeListener('data', handler);
+      reject(new Error('py:send timeout for cmd: ' + cmd.cmd));
+    }, 30000);
+  });
+});
+
+// ──────────────────────────────────────────────
+// IPC: Python subprocess (legacy one-shot)
 // ──────────────────────────────────────────────
 ipcMain.handle('python:run', async (event, args) => {
   return new Promise((resolve, reject) => {
@@ -212,6 +293,7 @@ ipcMain.handle('keychain:get', async (event, key) => {
 app.whenReady().then(async () => {
   await detectPython();
   console.log(`[main] Python path: ${pythonPath}`);
+  startPythonIPC();
   createWindow();
   if (process.platform === 'darwin') {
     createTray();
@@ -229,4 +311,5 @@ app.on('activate', () => {
 
 app.on('before-quit', () => {
   if (pythonProcess) pythonProcess.kill('SIGTERM');
+  if (pyProcess) pyProcess.kill('SIGTERM');
 });
