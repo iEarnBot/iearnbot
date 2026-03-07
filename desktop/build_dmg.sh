@@ -1,60 +1,38 @@
 #!/usr/bin/env bash
 # build_dmg.sh — Build iEarn.Bot macOS .dmg
+#
+# v0.4+: Uses Electron + electron-builder (arm64 + x64)
 # Requirements:
-#   pip install pyinstaller rumps pyobjc-framework-Cocoa requests flask python-dotenv
-#   brew install create-dmg
+#   node/npm (electron-builder is installed via npm)
+#   cd electron && npm install
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-DIST_DIR="$SCRIPT_DIR/dist"
+ELECTRON_DIR="$REPO_ROOT/electron"
+DIST_DIR="$ELECTRON_DIR/dist"
 APP_NAME="iEarn.Bot"
-DMG_NAME="iEarnBot-v0.1-macOS"
 
-echo "🔥 Building $APP_NAME desktop app..."
+echo "🔥 Building $APP_NAME (Electron) .dmg packages..."
 
-# ── 1. Install Python deps ─────────────────────────────────────────────────
-pip install --quiet pyinstaller rumps pyobjc-framework-Cocoa requests flask python-dotenv
+# ── 1. Install npm deps ────────────────────────────────────────────────────
+cd "$ELECTRON_DIR"
+npm install
 
-# ── 2. PyInstaller ─────────────────────────────────────────────────────────
-cd "$SCRIPT_DIR"
-pyinstaller --noconfirm iearnbot.spec
+# ── 2. Build arm64 DMG ────────────────────────────────────────────────────
+echo "📦 Building arm64 DMG..."
+npx electron-builder --mac dmg --arm64
 
-# ── 3. Verify .app bundle ──────────────────────────────────────────────────
-APP_PATH="$DIST_DIR/$APP_NAME.app"
-if [ ! -d "$APP_PATH" ]; then
-  echo "❌ Build failed — $APP_PATH not found"
-  exit 1
-fi
-echo "✅ App bundle: $APP_PATH"
+# ── 3. Build x64 DMG ──────────────────────────────────────────────────────
+echo "📦 Building x64 DMG..."
+npx electron-builder --mac dmg --x64
 
-# ── 4. Create DMG ──────────────────────────────────────────────────────────
-DMG_OUT="$SCRIPT_DIR/$DMG_NAME.dmg"
-rm -f "$DMG_OUT"
-
-create-dmg \
-  --volname "$APP_NAME" \
-  --volicon "$APP_PATH/Contents/Resources/app.icns" 2>/dev/null || true \
-  --window-pos 200 120 \
-  --window-size 600 400 \
-  --icon-size 128 \
-  --icon "$APP_NAME.app" 170 190 \
-  --hide-extension "$APP_NAME.app" \
-  --app-drop-link 430 190 \
-  --no-internet-enable \
-  "$DMG_OUT" \
-  "$APP_PATH" \
-  || \
-  create-dmg \
-    --volname "$APP_NAME" \
-    --window-pos 200 120 \
-    --window-size 600 400 \
-    --icon-size 128 \
-    --icon "$APP_NAME.app" 170 190 \
-    --app-drop-link 430 190 \
-    "$DMG_OUT" \
-    "$APP_PATH"
+# ── 4. Verify output ──────────────────────────────────────────────────────
+echo ""
+echo "✅ DMG packages ready:"
+ls -lh "$DIST_DIR"/*.dmg
 
 echo ""
-echo "✅ DMG ready: $DMG_OUT"
+echo "   arm64 (Apple Silicon): $DIST_DIR/iEarn.Bot-*-arm64.dmg"
+echo "   x64   (Intel):         $DIST_DIR/iEarn.Bot-*.dmg"
 echo "   Drag '$APP_NAME.app' to Applications and launch from Spotlight."
