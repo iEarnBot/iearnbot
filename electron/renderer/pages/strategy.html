@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <title>Strategy</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .strategy-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      height: 100%;
+    }
+    @media (max-width: 700px) {
+      .strategy-layout { grid-template-columns: 1fr; }
+    }
+    .strategy-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .result-panel {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      overflow-y: auto;
+    }
+    .result-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      flex: 1;
+      gap: 10px;
+      color: var(--subtle);
+      font-size: 13px;
+      text-align: center;
+    }
+    .result-placeholder .icon { font-size: 36px; opacity: 0.3; }
+
+    .param-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .param-row:last-child { border-bottom: none; }
+    .param-name { flex: 1; font-size: 13px; font-weight: 500; }
+    .param-type { font-size: 10px; color: var(--subtle); text-transform: uppercase; }
+    .param-input { width: 140px; flex-shrink: 0; }
+
+    .toggle-wrap { display: flex; align-items: center; gap: 8px; }
+    .toggle {
+      appearance: none;
+      width: 36px;
+      height: 20px;
+      background: var(--border);
+      border-radius: 10px;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .toggle::after {
+      content: '';
+      position: absolute;
+      width: 14px; height: 14px;
+      background: #fff;
+      border-radius: 50%;
+      top: 3px; left: 3px;
+      transition: left 0.2s;
+    }
+    .toggle:checked { background: var(--accent); }
+    .toggle:checked::after { left: 19px; }
+
+    .gen-btn-wrap {
+      display: flex;
+      gap: 8px;
+    }
+    .strategy-name-display {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .strategy-desc-display {
+      font-size: 13px;
+      color: var(--subtle);
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body class="page-root">
+
+  <div class="page-header">
+    <div class="page-header-row">
+      <div>
+        <h1>Strategy</h1>
+        <p class="mt-1">Generate and configure AI trading strategies</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-body">
+    <div class="strategy-layout">
+
+      <!-- Left: Input panel -->
+      <div class="strategy-panel">
+        <div class="card">
+          <h3 style="margin-bottom:12px">1. Target Market</h3>
+          <div class="form-group">
+            <label class="form-label">Market URL</label>
+            <input class="form-input" id="stratUrl" type="url" placeholder="https://polymarket.com/event/...">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Strategy Brief</label>
+            <textarea class="form-textarea" id="stratBrief" style="min-height:100px"
+              placeholder="Describe the trading strategy in plain English. e.g. 'Fade the market when probability > 90%, buy back when it drops below 70%.'"></textarea>
+          </div>
+          <div class="gen-btn-wrap">
+            <button class="btn btn-primary w-full" id="generateBtn">🧠 Generate Strategy</button>
+          </div>
+          <div id="genProgress" style="display:none; margin-top:10px; text-align:center; color:var(--subtle); font-size:13px">
+            ⏳ Generating strategy…
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 style="margin-bottom:12px">2. Load from File</h3>
+          <div class="form-group">
+            <label class="form-label">params.yaml path</label>
+            <div class="flex gap-2">
+              <input class="form-input" id="paramsPath" type="text" placeholder="~/.openclaw/workspace/strategy/params.yaml">
+              <button class="btn btn-outline" id="loadParamsBtn" style="white-space:nowrap">Load</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Result panel -->
+      <div class="result-panel" id="resultPanel">
+        <div class="result-placeholder" id="resultPlaceholder">
+          <div class="icon">🧠</div>
+          <p>Generate a strategy to see results here</p>
+        </div>
+
+        <div id="resultContent" style="display:none; flex-direction:column; gap:14px; flex:1">
+          <div>
+            <div class="strategy-name-display" id="stratName">—</div>
+            <div class="strategy-desc-display mt-1" id="stratDesc">—</div>
+          </div>
+
+          <div class="divider"></div>
+
+          <h3>Parameters</h3>
+          <div id="paramsForm">
+            <!-- Dynamically rendered param rows -->
+          </div>
+
+          <div class="divider" style="margin-top:auto"></div>
+          <button class="btn btn-primary btn-lg" id="saveDeployBtn">💾 Save &amp; Deploy</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+  'use strict';
+
+  const DEMO_STRATEGIES = [
+    {
+      name: 'Mean-Reversion Fade',
+      desc: 'Fade extreme probabilities (>88% or <12%) with small positions. Exit when probability reverts 10pp toward center.',
+      params: [
+        { key: 'fade_threshold_hi', label: 'Fade threshold (high)', type: 'number', value: 0.88 },
+        { key: 'fade_threshold_lo', label: 'Fade threshold (low)',  type: 'number', value: 0.12 },
+        { key: 'revert_target',     label: 'Revert exit (pp)',      type: 'number', value: 10   },
+        { key: 'max_position_usdc', label: 'Max position (USDC)',   type: 'number', value: 50   },
+        { key: 'dry_run',           label: 'Dry run',               type: 'boolean',value: true },
+      ],
+    },
+    {
+      name: 'Momentum Follow',
+      desc: 'Follow strong momentum moves >5pp in 1 hour. Take profit at 3pp gain; stop-loss at 2pp.',
+      params: [
+        { key: 'momentum_pp',       label: 'Trigger momentum (pp)', type: 'number', value: 5  },
+        { key: 'window_hours',      label: 'Window (hours)',         type: 'number', value: 1  },
+        { key: 'take_profit_pp',    label: 'Take profit (pp)',       type: 'number', value: 3  },
+        { key: 'stop_loss_pp',      label: 'Stop loss (pp)',         type: 'number', value: 2  },
+        { key: 'dry_run',           label: 'Dry run',               type: 'boolean',value: true },
+      ],
+    },
+  ];
+
+  let currentStrategy = null;
+
+  function renderParams(params) {
+    return params.map(p => {
+      const inputHtml = p.type === 'boolean'
+        ? `<div class="toggle-wrap"><input type="checkbox" class="toggle param-ctrl" data-key="${p.key}" ${p.value ? 'checked' : ''}></div>`
+        : `<input type="number" class="form-input param-input param-ctrl" data-key="${p.key}" value="${p.value}" step="any">`;
+      return `
+        <div class="param-row">
+          <div>
+            <div class="param-name">${p.label}</div>
+            <div class="param-type">${p.type}</div>
+          </div>
+          ${inputHtml}
+        </div>`;
+    }).join('');
+  }
+
+  function showResult(strategy) {
+    currentStrategy = strategy;
+    document.getElementById('resultPlaceholder').style.display = 'none';
+    document.getElementById('resultContent').style.display = 'flex';
+    document.getElementById('stratName').textContent = strategy.name;
+    document.getElementById('stratDesc').textContent = strategy.desc;
+    document.getElementById('paramsForm').innerHTML = renderParams(strategy.params);
+  }
+
+  document.getElementById('generateBtn').addEventListener('click', () => {
+    const url   = document.getElementById('stratUrl').value.trim();
+    const brief = document.getElementById('stratBrief').value.trim();
+    if (!url && !brief) {
+      document.getElementById('stratUrl').focus();
+      return;
+    }
+    const btn = document.getElementById('generateBtn');
+    const prog = document.getElementById('genProgress');
+    btn.disabled = true;
+    prog.style.display = 'block';
+
+    setTimeout(() => {
+      const pick = DEMO_STRATEGIES[Math.floor(Math.random() * DEMO_STRATEGIES.length)];
+      showResult(pick);
+      btn.disabled = false;
+      prog.style.display = 'none';
+    }, 1800);
+  });
+
+  document.getElementById('loadParamsBtn').addEventListener('click', async () => {
+    const p = document.getElementById('paramsPath').value.trim();
+    if (!p) return;
+    try {
+      if (window.top?.ipcApi) {
+        const yaml = await window.top.ipcApi.readFile(p.replace('~', ''));
+        // Minimal yaml parse (key: value lines only)
+        const params = yaml.split('\n').filter(l => l.includes(':')).map(l => {
+          const [k, ...rest] = l.split(':');
+          const val = rest.join(':').trim();
+          return { key: k.trim(), label: k.trim(), type: isNaN(val) ? (val === 'true' || val === 'false' ? 'boolean' : 'string') : 'number', value: isNaN(val) ? val : Number(val) };
+        });
+        showResult({ name: 'Loaded from file', desc: p, params });
+      }
+    } catch (e) {
+      alert('Could not load file: ' + e.message);
+    }
+  });
+
+  document.getElementById('saveDeployBtn').addEventListener('click', () => {
+    if (!currentStrategy) return;
+    const values = {};
+    document.querySelectorAll('.param-ctrl').forEach(el => {
+      values[el.dataset.key] = el.type === 'checkbox' ? el.checked : Number(el.value);
+    });
+    const payload = { ...currentStrategy, values };
+    const strategies = JSON.parse(localStorage.getItem('deployedStrategies') || '[]');
+    strategies.push({ ...payload, id: 'strat-' + Date.now(), status: 'stopped', schedule: 'manual' });
+    localStorage.setItem('deployedStrategies', JSON.stringify(strategies));
+    document.getElementById('saveDeployBtn').textContent = '✅ Saved!';
+    setTimeout(() => { document.getElementById('saveDeployBtn').textContent = '💾 Save & Deploy'; }, 2000);
+  });
+  </script>
+</body>
+</html>

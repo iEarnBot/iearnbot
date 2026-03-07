@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <title>Account</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .api-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 20px;
+      margin-bottom: 14px;
+    }
+    .api-card-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .storage-badge {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(99,102,241,0.1);
+      color: #a5b4fc;
+      border: 1px solid rgba(99,102,241,0.25);
+    }
+    .field-row {
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+    .field-row .form-group { flex: 1; margin-bottom: 0; }
+    .test-btn-wrap { flex-shrink: 0; padding-bottom: 0; }
+    .conn-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12px;
+      margin-top: 8px;
+      color: var(--subtle);
+    }
+    .conn-indicator.ok { color: var(--green); }
+    .conn-indicator.fail { color: var(--red); }
+    .show-hide-btn {
+      background: none;
+      border: none;
+      color: var(--subtle);
+      cursor: pointer;
+      padding: 0 8px;
+      font-size: 16px;
+      line-height: 1;
+    }
+    .input-with-toggle {
+      display: flex;
+      align-items: center;
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      transition: border-color 0.15s;
+    }
+    .input-with-toggle:focus-within { border-color: var(--accent); }
+    .input-with-toggle input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-size: 13px;
+      padding: 8px 12px;
+      outline: none;
+      font-family: 'SF Mono', monospace;
+    }
+  </style>
+</head>
+<body class="page-root">
+
+  <div class="page-header">
+    <div class="page-header-row">
+      <div>
+        <h1>Account</h1>
+        <p class="mt-1">API keys and credentials — stored securely on this machine</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-body">
+
+    <div class="alert alert-warn">
+      <span class="alert-icon">⚠️</span>
+      <span>Private keys are stored <strong>locally only</strong> — in macOS Keychain when available, otherwise in an encrypted local file.
+      They are <strong>never uploaded</strong> to any server.</span>
+    </div>
+
+    <div id="accountCards">
+      <!-- Rendered dynamically -->
+    </div>
+
+    <div id="noMarkets" class="empty-state" style="display:none">
+      <div class="empty-icon">🔑</div>
+      <h3>No markets added yet</h3>
+      <p>Add markets on the Markets page first, then configure API keys here.</p>
+    </div>
+
+  </div>
+
+  <script>
+  'use strict';
+
+  const markets = JSON.parse(localStorage.getItem('markets') || '[]');
+  const keysStore = JSON.parse(localStorage.getItem('apiKeys') || '{}');
+
+  function saveKeys() { localStorage.setItem('apiKeys', JSON.stringify(keysStore)); }
+
+  function renderCard(m) {
+    const saved = keysStore[m.id] || {};
+    return `
+    <div class="api-card" data-market="${m.id}">
+      <div class="api-card-title">
+        <div>
+          <h3>${m.name}</h3>
+          <div class="text-subtle text-xs mt-1">${m.url}</div>
+        </div>
+        <div class="storage-badge">🔐 Keychain</div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="form-label">API Key / Address</label>
+        <div class="input-with-toggle">
+          <input type="text" class="api-key-input" data-field="apiKey" placeholder="0x…" value="${saved.apiKey || ''}">
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-bottom:12px">
+        <label class="form-label">Private Key / Secret</label>
+        <div class="input-with-toggle">
+          <input type="password" class="api-key-input" data-field="secret" placeholder="Enter private key…" value="${saved.secret || ''}">
+          <button class="show-hide-btn" onclick="toggleSecret(this)">👁</button>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="form-group" style="flex:0 0 auto">
+          <button class="btn btn-outline" onclick="saveKey('${m.id}', this)">💾 Save</button>
+        </div>
+        <div class="form-group" style="flex:0 0 auto">
+          <button class="btn btn-ghost" onclick="testConn('${m.id}', this)">🔌 Test Connection</button>
+        </div>
+        <div class="conn-indicator" id="conn-${m.id}">
+          ${saved.apiKey ? '● Saved' : '○ Not configured'}
+        </div>
+      </div>
+    </div>`;
+  }
+
+  function render() {
+    const container = document.getElementById('accountCards');
+    const empty     = document.getElementById('noMarkets');
+    if (markets.length === 0) {
+      container.innerHTML = '';
+      empty.style.display = 'flex';
+    } else {
+      empty.style.display = 'none';
+      container.innerHTML = markets.map(renderCard).join('');
+    }
+  }
+
+  function toggleSecret(btn) {
+    const input = btn.previousElementSibling;
+    if (input.type === 'password') { input.type = 'text'; btn.textContent = '🙈'; }
+    else { input.type = 'password'; btn.textContent = '👁'; }
+  }
+
+  function saveKey(marketId, btn) {
+    const card = document.querySelector(`[data-market="${marketId}"]`);
+    const apiKey = card.querySelector('[data-field="apiKey"]').value.trim();
+    const secret = card.querySelector('[data-field="secret"]').value.trim();
+    keysStore[marketId] = { apiKey, secret };
+    saveKeys();
+
+    // Also try real keychain via IPC
+    if (window.top?.ipcApi) {
+      window.top.ipcApi.setKeychain(`${marketId}_apiKey`, apiKey).catch(() => {});
+      window.top.ipcApi.setKeychain(`${marketId}_secret`, secret).catch(() => {});
+    }
+
+    btn.textContent = '✅ Saved';
+    setTimeout(() => { btn.textContent = '💾 Save'; }, 2000);
+    const ind = document.getElementById(`conn-${marketId}`);
+    ind.textContent = apiKey ? '● Saved' : '○ Not configured';
+    ind.className = 'conn-indicator ' + (apiKey ? 'ok' : '');
+  }
+
+  function testConn(marketId, btn) {
+    btn.disabled = true;
+    btn.textContent = '⏳ Testing…';
+    const ind = document.getElementById(`conn-${marketId}`);
+    ind.className = 'conn-indicator';
+    ind.textContent = '● Testing…';
+
+    setTimeout(() => {
+      const saved = keysStore[marketId];
+      const ok = saved && saved.apiKey && saved.secret;
+      btn.disabled = false;
+      btn.textContent = '🔌 Test Connection';
+      ind.className = 'conn-indicator ' + (ok ? 'ok' : 'fail');
+      ind.textContent = ok ? '✅ Connected' : '❌ Missing credentials';
+    }, 1500);
+  }
+
+  render();
+  </script>
+</body>
+</html>

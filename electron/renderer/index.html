@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <title>iEarn.Bot</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>
+    /* Sidebar nav item badge for run count */
+    .nav-badge {
+      margin-left: auto;
+      background: rgba(249,115,22,0.2);
+      color: var(--accent);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 10px;
+      min-width: 18px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <div class="logo-mark">i₿</div>
+      iEarn.Bot
+    </div>
+    <div class="topbar-meta">
+      <div class="status-pill" id="botStatusPill">
+        <span class="dot"></span>
+        <span id="botStatusText">Stopped</span>
+      </div>
+      <div class="topbar-balance">Balance: <span id="balanceDisplay">—</span></div>
+      <div class="topbar-version">v0.4.0</div>
+    </div>
+  </header>
+
+  <!-- Main layout -->
+  <div class="main-layout">
+
+    <!-- Sidebar -->
+    <nav class="sidebar">
+      <div class="nav-section">Trading</div>
+      <button class="nav-item active" data-page="markets">
+        <span class="nav-icon">📊</span>
+        Markets
+      </button>
+      <button class="nav-item" data-page="strategy">
+        <span class="nav-icon">🧠</span>
+        Strategy
+      </button>
+      <button class="nav-item" data-page="run">
+        <span class="nav-icon">▶</span>
+        Run
+        <span class="nav-badge" id="runBadge" style="display:none">0</span>
+      </button>
+
+      <div class="nav-section">Config</div>
+      <button class="nav-item" data-page="account">
+        <span class="nav-icon">🔑</span>
+        Account
+      </button>
+
+      <div class="nav-section">Debug</div>
+      <button class="nav-item" data-page="logs">
+        <span class="nav-icon">📋</span>
+        Logs
+      </button>
+    </nav>
+
+    <!-- Content -->
+    <main class="content-area">
+      <iframe id="pageFrame" src="pages/markets.html" title="Page Content"></iframe>
+    </main>
+
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

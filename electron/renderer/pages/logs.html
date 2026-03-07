@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <title>Logs</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .log-toolbar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+
+    .filter-tabs {
+      display: inline-flex;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      overflow: hidden;
+      background: var(--bg2);
+    }
+
+    .tab {
+      border: none;
+      background: transparent;
+      color: var(--subtle);
+      font-weight: 700;
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 7px 12px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .tab.active {
+      background: rgba(249,115,22,0.15);
+      color: var(--accent);
+    }
+
+    .log-view {
+      background: #05070d;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      height: calc(100vh - 44px - 24px - 110px);
+      overflow: auto;
+      padding: 14px;
+      font-family: 'SF Mono', ui-monospace, Menlo, Monaco, monospace;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .log-line {
+      display: flex;
+      gap: 10px;
+      padding: 2px 0;
+      border-bottom: 1px solid rgba(30,45,69,0.35);
+    }
+    .log-line:last-child { border-bottom: none; }
+
+    .log-ts { color: #64748b; width: 90px; flex-shrink: 0; }
+    .log-level { width: 72px; flex-shrink: 0; font-weight: 800; }
+    .log-msg { color: #e2e8f0; white-space: pre-wrap; word-break: break-word; flex: 1; }
+
+    .lvl-INFO { color: #93c5fd; }
+    .lvl-WARNING { color: #fde68a; }
+    .lvl-ERROR { color: #fca5a5; }
+
+    .auto-scroll {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--subtle);
+    }
+
+    .checkbox {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: var(--subtle);
+    }
+
+    .kbd {
+      font-family: 'SF Mono', monospace;
+      font-size: 11px;
+      padding: 2px 6px;
+      border: 1px solid var(--border);
+      border-bottom-width: 2px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.03);
+      color: var(--text);
+    }
+  </style>
+</head>
+<body class="page-root">
+
+  <div class="page-header">
+    <div class="page-header-row">
+      <div>
+        <h1>Logs</h1>
+        <p class="mt-1">Live stream (simulated tail -f). Python subprocess output will appear here.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="page-body">
+
+    <div class="log-toolbar">
+      <div class="filter-tabs" role="tablist" aria-label="Log filter">
+        <button class="tab active" data-filter="ALL">All</button>
+        <button class="tab" data-filter="INFO">Info</button>
+        <button class="tab" data-filter="WARNING">Warning</button>
+        <button class="tab" data-filter="ERROR">Error</button>
+      </div>
+
+      <div class="flex gap-3 items-center">
+        <label class="auto-scroll">
+          <input class="checkbox" type="checkbox" id="autoScroll" checked>
+          Auto-scroll
+        </label>
+        <button class="btn btn-ghost" id="clearBtn">Clear</button>
+      </div>
+    </div>
+
+    <div class="hint" style="margin-bottom:10px">
+      Tip: press <span class="kbd">⌘</span>+<span class="kbd">K</span> to clear.
+    </div>
+
+    <div class="log-view" id="logView" aria-label="Log output"></div>
+  </div>
+
+  <script>
+  'use strict';
+
+  const logView = document.getElementById('logView');
+  const autoScroll = document.getElementById('autoScroll');
+  const tabs = Array.from(document.querySelectorAll('.tab[data-filter]'));
+
+  let filter = 'ALL';
+  let buffer = []; // {ts, level, text}
+
+  function tsFmt(ts) {
+    const d = new Date(ts);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
+  function shouldShow(level) {
+    if (filter === 'ALL') return true;
+    return level === filter;
+  }
+
+  function render() {
+    const html = buffer
+      .filter(l => shouldShow(l.level))
+      .slice(-2000)
+      .map(l => {
+        const safeText = (l.text || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+        return `
+          <div class="log-line">
+            <div class="log-ts">${tsFmt(l.ts)}</div>
+            <div class="log-level lvl-${l.level}">${l.level}</div>
+            <div class="log-msg">${safeText}</div>
+          </div>`;
+      })
+      .join('');
+
+    logView.innerHTML = html || `<div class="text-subtle" style="padding:8px">No logs yet.</div>`;
+
+    if (autoScroll.checked) {
+      logView.scrollTop = logView.scrollHeight;
+    }
+  }
+
+  function addLine({ level = 'INFO', text = '', ts = Date.now() }) {
+    if (!['INFO', 'WARNING', 'ERROR'].includes(level)) level = 'INFO';
+    buffer.push({ level, text, ts });
+    if (buffer.length > 5000) buffer = buffer.slice(-5000);
+
+    // Fast path append when filter matches (avoid rerender full list)
+    if (shouldShow(level)) {
+      const safeText = (text || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+      const node = document.createElement('div');
+      node.className = 'log-line';
+      node.innerHTML = `
+        <div class="log-ts">${tsFmt(ts)}</div>
+        <div class="log-level lvl-${level}">${level}</div>
+        <div class="log-msg">${safeText}</div>`;
+      // If empty placeholder exists, remove it
+      if (logView.children.length === 1 && logView.children[0].classList.contains('text-subtle')) {
+        logView.innerHTML = '';
+      }
+      logView.appendChild(node);
+      if (autoScroll.checked) logView.scrollTop = logView.scrollHeight;
+    }
+  }
+
+  // Filter tabs
+  tabs.forEach(t => {
+    t.addEventListener('click', () => {
+      tabs.forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+      filter = t.dataset.filter;
+      render();
+    });
+  });
+
+  // Clear
+  function clearLogs() {
+    buffer = [];
+    render();
+  }
+  document.getElementById('clearBtn').addEventListener('click', clearLogs);
+  window.addEventListener('keydown', (e) => {
+    const isCmdK = (e.metaKey || e.ctrlKey) && (e.key.toLowerCase() === 'k');
+    if (isCmdK) { e.preventDefault(); clearLogs(); }
+  });
+
+  // Receive streamed log lines from main via index -> postMessage
+  window.addEventListener('message', (e) => {
+    if (e?.data?.type === 'log:line') {
+      const payload = e.data.payload || {};
+      if (payload.text) addLine(payload);
+    }
+  });
+
+  // Simulated tail -f
+  const demo = [
+    { level: 'INFO', text: 'Engine initialized' },
+    { level: 'INFO', text: 'Loading markets registry…' },
+    { level: 'WARNING', text: 'No API key configured for market pm-1 (read-only mode)' },
+    { level: 'INFO', text: 'Scheduler tick: 0 jobs due' },
+    { level: 'ERROR', text: 'Sample error: connection refused (demo)' },
+  ];
+
+  let i = 0;
+  setInterval(() => {
+    const item = demo[i % demo.length];
+    addLine({ ...item, ts: Date.now() });
+    i++;
+  }, 1800);
+
+  render();
+  </script>
+</body>
+</html>

@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <title>Run</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .run-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px 20px;
+      margin-bottom: 12px;
+      transition: border-color 0.15s;
+    }
+    .run-card.running { border-color: rgba(34,197,94,0.35); }
+    .run-card.killed  { border-color: rgba(239,68,68,0.35); opacity: 0.7; }
+
+    .run-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .run-card-meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+
+    .run-card-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .schedule-select {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 12px;
+      padding: 5px 24px 5px 10px;
+      outline: none;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24'%3E%3Cpath fill='%2394a3b8' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 6px center;
+    }
+
+    .kill-btn {
+      background: rgba(239,68,68,0.15);
+      color: var(--red);
+      border: 1px solid rgba(239,68,68,0.3);
+      border-radius: var(--radius);
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .kill-btn:hover { background: rgba(239,68,68,0.3); }
+
+    .last-run {
+      font-size: 11px;
+      color: var(--subtle);
+      margin-top: 8px;
+    }
+
+    .refresh-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--subtle);
+      margin-bottom: 16px;
+    }
+    .refresh-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  </style>
+</head>
+<body class="page-root">
+
+  <div class="page-header">
+    <div class="page-header-row">
+      <div>
+        <h1>Run</h1>
+        <p class="mt-1">Start, stop, and schedule your deployed strategies</p>
+      </div>
+      <button class="btn btn-outline btn-sm" id="refreshBtn">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div class="page-body">
+
+    <div class="refresh-bar">
+      <span class="refresh-dot"></span>
+      Auto-refresh every 5 s &nbsp;·&nbsp; Last: <span id="lastRefresh">—</span>
+    </div>
+
+    <div id="runCards"><!-- rendered --></div>
+
+    <div id="noStrategies" class="empty-state" style="display:none">
+      <div class="empty-icon">▶</div>
+      <h3>No strategies deployed yet</h3>
+      <p>Generate and save a strategy on the Strategy page first.</p>
+    </div>
+
+  </div>
+
+  <script>
+  'use strict';
+
+  function getStrategies() {
+    return JSON.parse(localStorage.getItem('deployedStrategies') || '[]');
+  }
+  function saveStrategies(s) { localStorage.setItem('deployedStrategies', JSON.stringify(s)); }
+
+  // Seed demo data if empty
+  let strategies = getStrategies();
+  if (strategies.length === 0) {
+    strategies = [
+      { id: 'strat-1', name: 'Mean-Reversion Fade', market: 'US Election 2026',  status: 'stopped',  schedule: 'manual', lastRun: null },
+      { id: 'strat-2', name: 'Momentum Follow',      market: 'BTC $100k by EOY', status: 'running', schedule: '5min',   lastRun: Date.now() - 60000 },
+    ];
+    saveStrategies(strategies);
+  }
+
+  function statusBadge(s) {
+    if (s === 'running')   return '<span class="badge badge-green">● Running</span>';
+    if (s === 'stopped')   return '<span class="badge badge-gray">◼ Stopped</span>';
+    if (s === 'scheduled') return '<span class="badge badge-yellow">⏰ Scheduled</span>';
+    if (s === 'killed')    return '<span class="badge badge-red">🔴 Killed</span>';
+    return `<span class="badge badge-gray">${s}</span>`;
+  }
+
+  function fmtTime(ts) {
+    if (!ts) return 'Never';
+    const d = new Date(ts);
+    return d.toLocaleTimeString();
+  }
+
+  function renderCard(s) {
+    const isRunning = s.status === 'running';
+    const isKilled  = s.status === 'killed';
+    return `
+    <div class="run-card ${isRunning ? 'running' : ''} ${isKilled ? 'killed' : ''}" id="card-${s.id}">
+      <div class="run-card-header">
+        <div>
+          <h3>${s.name}</h3>
+          <div class="run-card-meta">
+            <span class="text-subtle text-sm">📊 ${s.market || '—'}</span>
+            ${statusBadge(s.status)}
+          </div>
+        </div>
+      </div>
+
+      <div class="run-card-controls">
+        <select class="schedule-select" onchange="setSchedule('${s.id}', this.value)">
+          <option value="manual"  ${s.schedule==='manual'   ? 'selected':''}>Manual</option>
+          <option value="5min"    ${s.schedule==='5min'     ? 'selected':''}>Every 5 min</option>
+          <option value="15min"   ${s.schedule==='15min'    ? 'selected':''}>Every 15 min</option>
+          <option value="1hr"     ${s.schedule==='1hr'      ? 'selected':''}>Hourly</option>
+          <option value="6hr"     ${s.schedule==='6hr'      ? 'selected':''}>Every 6 hr</option>
+          <option value="1day"    ${s.schedule==='1day'     ? 'selected':''}>Daily</option>
+          <option value="1week"   ${s.schedule==='1week'    ? 'selected':''}>Weekly</option>
+        </select>
+
+        <button class="btn btn-green btn-sm" onclick="startStrategy('${s.id}')" ${isRunning?'disabled':''}>▶ Start</button>
+        <button class="btn btn-outline btn-sm" onclick="stopStrategy('${s.id}')" ${!isRunning?'disabled':''}>⏹ Stop</button>
+        <button class="kill-btn" onclick="killSwitch('${s.id}')">🔴 Kill</button>
+      </div>
+
+      <div class="last-run">Last run: ${fmtTime(s.lastRun)}</div>
+    </div>`;
+  }
+
+  function render() {
+    strategies = getStrategies();
+    const container = document.getElementById('runCards');
+    const empty     = document.getElementById('noStrategies');
+    if (strategies.length === 0) {
+      container.innerHTML = '';
+      empty.style.display = 'flex';
+    } else {
+      empty.style.display = 'none';
+      container.innerHTML = strategies.map(renderCard).join('');
+    }
+    document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
+  }
+
+  function setSchedule(id, val) {
+    strategies = getStrategies();
+    const s = strategies.find(x => x.id === id);
+    if (s) { s.schedule = val; if (val !== 'manual') s.status = 'scheduled'; saveStrategies(strategies); render(); }
+  }
+
+  function startStrategy(id) {
+    strategies = getStrategies();
+    const s = strategies.find(x => x.id === id);
+    if (!s) return;
+    s.status = 'running'; s.lastRun = Date.now();
+    saveStrategies(strategies); render();
+
+    // Real: would invoke python:run via IPC
+    // window.top?.ipcApi?.runPython(['-m', 'iearnbot', '--strategy', id]);
+  }
+
+  function stopStrategy(id) {
+    strategies = getStrategies();
+    const s = strategies.find(x => x.id === id);
+    if (s) { s.status = 'stopped'; saveStrategies(strategies); render(); }
+  }
+
+  function killSwitch(id) {
+    if (!confirm('Kill-Switch: immediately halt strategy and cancel open orders?')) return;
+    strategies = getStrategies();
+    const s = strategies.find(x => x.id === id);
+    if (s) { s.status = 'killed'; saveStrategies(strategies); render(); }
+    // Real: window.top?.ipcApi?.stopPython();
+  }
+
+  render();
+  document.getElementById('refreshBtn').addEventListener('click', render);
+  setInterval(render, 5000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+{
+  "name": "iearnbot",
+  "version": "0.4.0",
+  "description": "iEarn.Bot — AI-driven Polymarket prediction market Bot",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:dmg": "electron-builder --mac dmg",
+    "build:exe": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "build": {
+    "appId": "bot.iearn.app",
+    "productName": "iEarn.Bot",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "assets/**/*"
+    ],
+    "mac": {
+      "category": "public.app-category.finance",
+      "icon": "assets/icon.icns",
+      "target": "dmg"
+    },
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": "nsis"
+    }
+  }
+}

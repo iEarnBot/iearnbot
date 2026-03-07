@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <title>Markets</title>
+  <link rel="stylesheet" href="../styles.css">
+  <style>
+    .market-card { position: relative; }
+    .market-card .card-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .market-card .card-url {
+      font-size: 11px;
+      color: var(--subtle);
+      font-family: monospace;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+      margin-bottom: 12px;
+    }
+    .market-card .card-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .mode-toggle {
+      display: flex;
+      gap: 4px;
+    }
+    .mode-btn {
+      padding: 3px 10px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      background: transparent;
+      color: var(--subtle);
+      transition: all 0.15s;
+    }
+    .mode-btn.active-readonly { background: rgba(99,102,241,0.15); color: #a5b4fc; border-color: rgba(99,102,241,0.3); }
+    .mode-btn.active-live     { background: rgba(239,68,68,0.15);  color: var(--red); border-color: rgba(239,68,68,0.3); }
+  </style>
+</head>
+<body class="page-root">
+
+  <div class="page-header">
+    <div class="page-header-row">
+      <div>
+        <h1>Markets</h1>
+        <p class="mt-1">Manage prediction market adapters</p>
+      </div>
+      <button class="btn btn-primary" id="addMarketBtn">＋ Add Market</button>
+    </div>
+  </div>
+
+  <div class="page-body">
+    <div id="marketsGrid" class="card-grid">
+      <!-- Demo cards (replace with dynamic load) -->
+    </div>
+    <div id="emptyState" class="empty-state" style="display:none">
+      <div class="empty-icon">📊</div>
+      <h3>No markets yet</h3>
+      <p>Click "+ Add Market" to connect your first prediction market.</p>
+    </div>
+  </div>
+
+  <!-- Add Market Modal -->
+  <div class="modal-backdrop" id="addModal">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Add Market</h2>
+        <button class="modal-close" id="closeModal">✕</button>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Market URL</label>
+        <input class="form-input" id="marketUrl" type="url" placeholder="https://polymarket.com/event/..." />
+        <div class="form-hint">Paste the full market or event URL. An adapter will be generated automatically.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Display Name (optional)</label>
+        <input class="form-input" id="marketName" type="text" placeholder="e.g. US Election 2026" />
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cancelModal">Cancel</button>
+        <button class="btn btn-primary" id="confirmAdd">Generate Adapter</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  'use strict';
+
+  // ── Sample data (in real app, load from fs) ──
+  let markets = JSON.parse(localStorage.getItem('markets') || '[]');
+  if (markets.length === 0) {
+    markets = [
+      { id: 'pm-1', name: 'US Election 2026', url: 'https://polymarket.com/event/us-election-2026', mode: 'readonly', status: 'ok' },
+      { id: 'pm-2', name: 'BTC $100k by EOY',  url: 'https://polymarket.com/event/btc-100k',       mode: 'live',     status: 'ok' },
+    ];
+    save();
+  }
+
+  function save() { localStorage.setItem('markets', JSON.stringify(markets)); }
+
+  function renderCard(m) {
+    return `
+      <div class="card market-card" data-id="${m.id}">
+        <div class="card-title">
+          ${m.name}
+          <span class="badge ${m.status === 'ok' ? 'badge-green' : 'badge-red'}">${m.status === 'ok' ? 'OK' : 'Error'}</span>
+        </div>
+        <div class="card-url" title="${m.url}">${m.url}</div>
+        <div class="card-footer">
+          <div class="mode-toggle">
+            <button class="mode-btn ${m.mode === 'readonly' ? 'active-readonly' : ''}"
+              onclick="setMode('${m.id}','readonly')">Read-only</button>
+            <button class="mode-btn ${m.mode === 'live' ? 'active-live' : ''}"
+              onclick="setMode('${m.id}','live')">Live</button>
+          </div>
+          <div class="flex gap-2">
+            <button class="btn btn-outline btn-sm" onclick="smokeTest('${m.id}')">🧪 Smoke Test</button>
+            <button class="btn btn-ghost btn-sm" onclick="removeMarket('${m.id}')">🗑</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  function render() {
+    const grid  = document.getElementById('marketsGrid');
+    const empty = document.getElementById('emptyState');
+    if (markets.length === 0) {
+      grid.innerHTML = '';
+      empty.style.display = 'flex';
+    } else {
+      empty.style.display = 'none';
+      grid.innerHTML = markets.map(renderCard).join('');
+    }
+  }
+
+  function setMode(id, mode) {
+    const m = markets.find(x => x.id === id);
+    if (m) { m.mode = mode; save(); render(); }
+  }
+
+  function removeMarket(id) {
+    markets = markets.filter(x => x.id !== id);
+    save(); render();
+  }
+
+  function smokeTest(id) {
+    const m = markets.find(x => x.id === id);
+    if (!m) return;
+    const btn = document.querySelector(`[data-id="${id}"] .btn-outline`);
+    if (btn) { btn.textContent = '⏳ Testing…'; btn.disabled = true; }
+    setTimeout(() => {
+      if (btn) { btn.textContent = '✅ Passed'; btn.disabled = false; }
+      m.status = 'ok'; save(); render();
+    }, 1500);
+  }
+
+  // ── Modal ──
+  const modal     = document.getElementById('addModal');
+  const openBtn   = document.getElementById('addMarketBtn');
+  const closeBtn  = document.getElementById('closeModal');
+  const cancelBtn = document.getElementById('cancelModal');
+  const confirmBtn= document.getElementById('confirmAdd');
+  const urlInput  = document.getElementById('marketUrl');
+  const nameInput = document.getElementById('marketName');
+
+  function openModal()  { modal.classList.add('open'); urlInput.focus(); }
+  function closeModal() { modal.classList.remove('open'); urlInput.value = ''; nameInput.value = ''; }
+
+  openBtn.addEventListener('click', openModal);
+  closeBtn.addEventListener('click', closeModal);
+  cancelBtn.addEventListener('click', closeModal);
+  modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+
+  confirmBtn.addEventListener('click', () => {
+    const url  = urlInput.value.trim();
+    const name = nameInput.value.trim() || new URL(url).pathname.split('/').filter(Boolean).pop() || 'Market';
+    if (!url) { urlInput.focus(); return; }
+    confirmBtn.textContent = '⏳ Generating…';
+    confirmBtn.disabled = true;
+    setTimeout(() => {
+      markets.push({ id: 'pm-' + Date.now(), name, url, mode: 'readonly', status: 'ok' });
+      save(); render();
+      closeModal();
+      confirmBtn.textContent = 'Generate Adapter';
+      confirmBtn.disabled = false;
+    }, 1200);
+  });
+
+  render();
+  </script>
+</body>
+</html>
