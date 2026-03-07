@@ -299,7 +299,7 @@ def handle_smoke_test(args: dict) -> dict:
 
 
 def handle_get_strategy_params(args: dict) -> dict:
-    """读取 data/strategies/{id}_params.yaml"""
+    """读取 data/strategies/{id}_params.yaml，返回 JSON 格式供 renderer 直接使用"""
     try:
         import yaml
     except ImportError:
@@ -310,12 +310,37 @@ def handle_get_strategy_params(args: dict) -> dict:
         raise ValueError("strategy_id is required")
 
     params_path = BASE / "data" / "strategies" / f"{strategy_id}_params.yaml"
+
+    # If no params.yaml, try to load defaults from strategy JSON
     if not params_path.exists():
+        strategy_path = BASE / "data" / "strategies" / f"{strategy_id}.json"
+        if strategy_path.exists():
+            try:
+                strategy_data = json.loads(strategy_path.read_text())
+                default_params = strategy_data.get("params", {})
+                return {"strategy_id": strategy_id, "params": default_params, "source": "strategy_json"}
+            except Exception as e:
+                log.warning(f"Failed to read strategy JSON for {strategy_id}: {e}")
         return {"strategy_id": strategy_id, "params": {}, "note": "No params file found"}
 
     with params_path.open() as f:
         params = yaml.safe_load(f) or {}
-    return {"strategy_id": strategy_id, "params": params}
+    # Return as JSON-serializable dict (yaml.safe_load already produces Python primitives)
+    return {"strategy_id": strategy_id, "params": params, "source": "params_yaml"}
+
+
+def handle_fetch_url(args: dict) -> dict:
+    """抓取 URL 内容并提取纯文本，供 strategy 生成使用"""
+    url = args.get("url", "")
+    if not url:
+        raise ValueError("url is required")
+    sys.path.insert(0, str(BASE / "src"))
+    try:
+        from strategy_ai import fetch_content
+        text = fetch_content(url)
+        return {"url": url, "text": text[:8000]}  # cap at 8k chars
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch {url}: {e}")
 
 
 def handle_save_strategy_params(args: dict) -> dict:
@@ -375,6 +400,7 @@ HANDLERS = {
     "add_market":          handle_add_market,
     "list_markets":        handle_list_markets,
     "smoke_test":          handle_smoke_test,
+    "fetch_url":           handle_fetch_url,
     "get_strategy_params": handle_get_strategy_params,
     "save_strategy_params":handle_save_strategy_params,
     "list_strategies":     handle_list_strategies,

@@ -2,24 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdn.jsdelivr.net; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline';">
   <title>Strategy</title>
   <link rel="stylesheet" href="../styles.css">
   <style>
     .strategy-layout {
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 420px 1fr;
       gap: 16px;
-      height: 100%;
+      min-height: 100%;
     }
-    @media (max-width: 700px) {
+    @media (max-width: 900px) {
       .strategy-layout { grid-template-columns: 1fr; }
     }
-    .strategy-panel {
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-    }
+    .gen-panel { display: flex; flex-direction: column; gap: 14px; }
     .result-panel {
       background: var(--card);
       border: 1px solid var(--border);
@@ -27,71 +23,96 @@
       padding: 20px;
       display: flex;
       flex-direction: column;
-      gap: 14px;
+      gap: 16px;
       overflow-y: auto;
     }
     .result-placeholder {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      flex: 1;
-      gap: 10px;
-      color: var(--subtle);
-      font-size: 13px;
-      text-align: center;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; flex: 1; min-height: 280px;
+      gap: 12px; color: var(--subtle); font-size: 13px; text-align: center;
     }
-    .result-placeholder .icon { font-size: 36px; opacity: 0.3; }
-
+    .result-placeholder .big-icon { font-size: 48px; opacity: 0.22; }
+    .strat-name { font-size: 20px; font-weight: 700; color: var(--text); }
+    .strat-desc { font-size: 13px; color: var(--subtle); line-height: 1.6; margin-top: 4px; }
+    .section-label {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: rgba(249,115,22,0.14); color: var(--accent);
+      border: 1px solid rgba(249,115,22,0.3); border-radius: 12px;
+      padding: 2px 10px; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px;
+    }
+    .params-section {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 4px 14px; margin-bottom: 12px;
+    }
     .param-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 0;
-      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0; border-bottom: 1px solid rgba(30,45,69,0.5);
     }
     .param-row:last-child { border-bottom: none; }
-    .param-name { flex: 1; font-size: 13px; font-weight: 500; }
-    .param-type { font-size: 10px; color: var(--subtle); text-transform: uppercase; }
-    .param-input { width: 140px; flex-shrink: 0; }
-
+    .param-meta { flex: 1; min-width: 0; }
+    .param-label { font-size: 13px; font-weight: 500; color: var(--text); }
+    .param-key   { font-size: 10px; color: var(--subtle); margin-top: 1px; font-family: monospace; }
+    .param-ctrl-wrap { flex-shrink: 0; }
+    .param-input { width: 130px; }
     .toggle-wrap { display: flex; align-items: center; gap: 8px; }
     .toggle {
-      appearance: none;
-      width: 36px;
-      height: 20px;
-      background: var(--border);
-      border-radius: 10px;
-      position: relative;
-      cursor: pointer;
-      transition: background 0.2s;
+      appearance: none; -webkit-appearance: none;
+      width: 38px; height: 22px; background: var(--border);
+      border-radius: 11px; position: relative; cursor: pointer; transition: background 0.2s;
     }
     .toggle::after {
-      content: '';
-      position: absolute;
-      width: 14px; height: 14px;
-      background: #fff;
-      border-radius: 50%;
-      top: 3px; left: 3px;
-      transition: left 0.2s;
+      content: ''; position: absolute; width: 16px; height: 16px;
+      background: #fff; border-radius: 50%; top: 3px; left: 3px; transition: left 0.2s;
     }
     .toggle:checked { background: var(--accent); }
     .toggle:checked::after { left: 19px; }
-
-    .gen-btn-wrap {
-      display: flex;
-      gap: 8px;
+    .toggle.kill:checked { background: var(--red); }
+    .risk-card {
+      background: rgba(239,68,68,0.05); border: 1.5px solid rgba(239,68,68,0.35);
+      border-radius: var(--radius); padding: 4px 14px;
     }
-    .strategy-name-display {
-      font-size: 18px;
-      font-weight: 700;
-      color: var(--text);
+    .risk-label {
+      display: inline-flex; align-items: center; gap: 5px;
+      background: rgba(239,68,68,0.14); color: var(--red);
+      border: 1px solid rgba(239,68,68,0.3); border-radius: 12px;
+      padding: 2px 10px; font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 10px;
     }
-    .strategy-desc-display {
-      font-size: 13px;
-      color: var(--subtle);
-      line-height: 1.6;
+    .schedule-card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+    .schedule-mode-row { display: flex; gap: 8px; margin-bottom: 12px; }
+    .mode-btn {
+      flex: 1; padding: 7px 4px; border-radius: var(--radius);
+      border: 1px solid var(--border); background: transparent;
+      color: var(--subtle); font-size: 12px; font-weight: 600;
+      cursor: pointer; transition: all 0.15s; text-align: center;
     }
+    .mode-btn.active { background: rgba(249,115,22,0.14); color: var(--accent); border-color: rgba(249,115,22,0.4); }
+    .schedule-input-row { display: flex; gap: 8px; align-items: center; }
+    .schedule-num { width: 80px; }
+    .code-block {
+      display: none; background: #07090f; border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px 14px;
+      font-family: 'SFMono-Regular', Consolas, 'Courier New', monospace;
+      font-size: 12px; line-height: 1.65; color: #9fd3a7;
+      max-height: 320px; overflow-y: auto; white-space: pre-wrap; word-break: break-all;
+    }
+    .code-block.visible { display: block; }
+    .action-row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .action-row .btn { flex: 1; justify-content: center; min-width: 110px; }
+    .gen-step { font-size: 12px; color: var(--subtle); margin-top: 8px; min-height: 18px; text-align: center; }
+    .fetch-row { display: flex; gap: 8px; }
+    .fetch-row .form-input { flex: 1; }
+    .url-error { display: none; font-size: 12px; color: var(--yellow); margin-top: 4px; }
+    .url-error.visible { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block; width: 12px; height: 12px;
+      border: 2px solid rgba(0,0,0,0.25); border-top-color: #000;
+      border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle;
+    }
+    .divider { height: 1px; background: var(--border); margin: 4px 0; }
+    .w-full { width: 100%; }
   </style>
 </head>
 <body class="page-root">
@@ -99,7 +120,7 @@
   <div class="page-header">
     <div class="page-header-row">
       <div>
-        <h1>Strategy</h1>
+        <h1>⚡ Strategy</h1>
         <p class="mt-1">Generate and configure AI trading strategies</p>
       </div>
     </div>
@@ -108,174 +129,564 @@
   <div class="page-body">
     <div class="strategy-layout">
 
-      <!-- Left: Input panel -->
-      <div class="strategy-panel">
+      <!-- LEFT: Generation Panel -->
+      <div class="gen-panel">
+
         <div class="card">
-          <h3 style="margin-bottom:12px">1. Target Market</h3>
+          <h3 style="margin-bottom:12px">1. Source Content</h3>
           <div class="form-group">
-            <label class="form-label">Market URL</label>
-            <input class="form-input" id="stratUrl" type="url" placeholder="https://polymarket.com/event/...">
+            <label class="form-label">URL (X post, YouTube, article…)</label>
+            <div class="fetch-row">
+              <input class="form-input" id="sourceUrl" type="url" placeholder="Paste X post or YouTube link...">
+              <button class="btn btn-outline" id="fetchBtn" style="white-space:nowrap">Fetch</button>
+            </div>
+            <div class="url-error" id="urlError">&#9888;&#65039; Could not fetch URL. Please paste the article text below.</div>
           </div>
-          <div class="form-group">
-            <label class="form-label">Strategy Brief</label>
-            <textarea class="form-textarea" id="stratBrief" style="min-height:100px"
-              placeholder="Describe the trading strategy in plain English. e.g. 'Fade the market when probability > 90%, buy back when it drops below 70%.'"></textarea>
-          </div>
-          <div class="gen-btn-wrap">
-            <button class="btn btn-primary w-full" id="generateBtn">🧠 Generate Strategy</button>
-          </div>
-          <div id="genProgress" style="display:none; margin-top:10px; text-align:center; color:var(--subtle); font-size:13px">
-            ⏳ Generating strategy…
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">Article text / Strategy brief</label>
+            <textarea class="form-textarea" id="sourceText" style="min-height:110px"
+              placeholder="Paste article text or describe your strategy..."></textarea>
           </div>
         </div>
 
         <div class="card">
-          <h3 style="margin-bottom:12px">2. Load from File</h3>
+          <h3 style="margin-bottom:12px">2. Target Market</h3>
           <div class="form-group">
-            <label class="form-label">params.yaml path</label>
-            <div class="flex gap-2">
-              <input class="form-input" id="paramsPath" type="text" placeholder="~/.openclaw/workspace/strategy/params.yaml">
-              <button class="btn btn-outline" id="loadParamsBtn" style="white-space:nowrap">Load</button>
-            </div>
+            <label class="form-label">Market</label>
+            <select class="form-select" id="marketSelect">
+              <option value="">— select market —</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">Hint (optional)</label>
+            <input class="form-input" id="marketHint" type="text" placeholder="e.g. probability ~65%, trending up">
           </div>
         </div>
+
+        <div class="card" style="padding:14px">
+          <button class="btn btn-primary w-full btn-lg" id="generateBtn">&#10024; Generate Strategy</button>
+          <div class="gen-step" id="genStep"></div>
+        </div>
+
       </div>
 
-      <!-- Right: Result panel -->
+      <!-- RIGHT: Result Panel -->
       <div class="result-panel" id="resultPanel">
+
         <div class="result-placeholder" id="resultPlaceholder">
-          <div class="icon">🧠</div>
-          <p>Generate a strategy to see results here</p>
+          <div class="big-icon">&#129504;</div>
+          <p>Generate a strategy to see parameters here</p>
         </div>
 
-        <div id="resultContent" style="display:none; flex-direction:column; gap:14px; flex:1">
+        <div id="resultContent" style="display:none; flex-direction:column; gap:16px">
+
           <div>
-            <div class="strategy-name-display" id="stratName">—</div>
-            <div class="strategy-desc-display mt-1" id="stratDesc">—</div>
+            <div class="strat-name" id="stratName">—</div>
+            <div class="strat-desc" id="stratDesc">—</div>
           </div>
 
           <div class="divider"></div>
 
-          <h3>Parameters</h3>
-          <div id="paramsForm">
-            <!-- Dynamically rendered param rows -->
+          <!-- Params form -->
+          <div>
+            <div class="section-label">&#128208; Parameters</div>
+            <div id="paramsForm"></div>
           </div>
 
-          <div class="divider" style="margin-top:auto"></div>
-          <button class="btn btn-primary btn-lg" id="saveDeployBtn">💾 Save &amp; Deploy</button>
+          <!-- Risk panel -->
+          <div id="riskPanel"></div>
+
+          <!-- Schedule -->
+          <div>
+            <div class="section-label">&#128336; Schedule</div>
+            <div class="schedule-card">
+              <div class="schedule-mode-row">
+                <button class="mode-btn active" data-mode="manual">Manual</button>
+                <button class="mode-btn" data-mode="interval">Interval</button>
+                <button class="mode-btn" data-mode="cron">Cron</button>
+              </div>
+              <div id="schedManual">
+                <p style="font-size:12px">Run manually — no automatic scheduling.</p>
+              </div>
+              <div id="schedInterval" style="display:none">
+                <div class="schedule-input-row">
+                  <span style="font-size:13px;color:var(--subtle)">Every</span>
+                  <input class="form-input schedule-num" id="intervalNum" type="number" min="1" value="30">
+                  <select class="form-select" id="intervalUnit" style="width:120px">
+                    <option value="minutes">minutes</option>
+                    <option value="hours">hours</option>
+                    <option value="days">days</option>
+                    <option value="weeks">weeks</option>
+                    <option value="months">months</option>
+                  </select>
+                </div>
+              </div>
+              <div id="schedCron" style="display:none">
+                <div class="form-group" style="margin-bottom:0">
+                  <label class="form-label">Cron expression</label>
+                  <input class="form-input" id="cronExpr" type="text" placeholder="*/30 * * * *" value="*/30 * * * *">
+                  <div class="form-hint" id="cronHint">Every 30 minutes</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="action-row">
+            <button class="btn btn-outline" id="viewCodeBtn">&#128203; View Code</button>
+            <button class="btn btn-outline" id="saveParamsBtn">&#128190; Save Parameters</button>
+            <button class="btn btn-primary" id="deployBtn">&#9654; Deploy &amp; Run</button>
+          </div>
+
+          <!-- Code viewer -->
+          <pre class="code-block" id="codeBlock"></pre>
+
         </div>
       </div>
 
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
   <script>
   'use strict';
 
-  const DEMO_STRATEGIES = [
-    {
-      name: 'Mean-Reversion Fade',
-      desc: 'Fade extreme probabilities (>88% or <12%) with small positions. Exit when probability reverts 10pp toward center.',
-      params: [
-        { key: 'fade_threshold_hi', label: 'Fade threshold (high)', type: 'number', value: 0.88 },
-        { key: 'fade_threshold_lo', label: 'Fade threshold (low)',  type: 'number', value: 0.12 },
-        { key: 'revert_target',     label: 'Revert exit (pp)',      type: 'number', value: 10   },
-        { key: 'max_position_usdc', label: 'Max position (USDC)',   type: 'number', value: 50   },
-        { key: 'dry_run',           label: 'Dry run',               type: 'boolean',value: true },
-      ],
-    },
-    {
-      name: 'Momentum Follow',
-      desc: 'Follow strong momentum moves >5pp in 1 hour. Take profit at 3pp gain; stop-loss at 2pp.',
-      params: [
-        { key: 'momentum_pp',       label: 'Trigger momentum (pp)', type: 'number', value: 5  },
-        { key: 'window_hours',      label: 'Window (hours)',         type: 'number', value: 1  },
-        { key: 'take_profit_pp',    label: 'Take profit (pp)',       type: 'number', value: 3  },
-        { key: 'stop_loss_pp',      label: 'Stop loss (pp)',         type: 'number', value: 2  },
-        { key: 'dry_run',           label: 'Dry run',               type: 'boolean',value: true },
-      ],
-    },
-  ];
-
-  let currentStrategy = null;
-
-  function renderParams(params) {
-    return params.map(p => {
-      const inputHtml = p.type === 'boolean'
-        ? `<div class="toggle-wrap"><input type="checkbox" class="toggle param-ctrl" data-key="${p.key}" ${p.value ? 'checked' : ''}></div>`
-        : `<input type="number" class="form-input param-input param-ctrl" data-key="${p.key}" value="${p.value}" step="any">`;
-      return `
-        <div class="param-row">
-          <div>
-            <div class="param-name">${p.label}</div>
-            <div class="param-type">${p.type}</div>
-          </div>
-          ${inputHtml}
-        </div>`;
-    }).join('');
+  var _reqId = 0;
+  function ipcSend(cmd, args) {
+    args = args || {};
+    var api = (window.top && window.top.ipcApi) ? window.top.ipcApi : null;
+    if (api && api.sendCommand) {
+      return api.sendCommand({ id: 'req-' + (++_reqId), cmd: cmd, args: args });
+    }
+    return devSim(cmd, args);
   }
 
+  function devSim(cmd, args) {
+    if (cmd === 'list_markets') {
+      return Promise.resolve({ ok: true, data: { markets: [
+        { name: 'polymarket', url: 'https://polymarket.com', status: 'active' },
+        { name: 'manifold',   url: 'https://manifold.markets', status: 'skeleton' }
+      ]}});
+    }
+    if (cmd === 'fetch_url') {
+      return Promise.resolve({ ok: false, error: 'Fetch not available in dev mode' });
+    }
+    if (cmd === 'generate_strategy') {
+      return new Promise(function(resolve) {
+        setTimeout(function() {
+          resolve({ ok: true, data: {
+            id: 'demo-' + Date.now(),
+            name: 'Mean-Reversion Fade',
+            description: 'Fade extreme probabilities (>88% or <12%) with small positions. Exit when probability reverts 10pp toward center.',
+            params: {
+              entry:    { fade_threshold_hi: 0.88, fade_threshold_lo: 0.12 },
+              position: { max_position_usdc: 50, size_pct: 0.1, dry_run: true },
+              exit:     { revert_target_pp: 10, take_profit_pp: 3, stop_loss_pp: 2 },
+              risk:     { max_position: 100, max_daily_loss: 20, max_drawdown: 0.15, trailing_stop: 0.05, kill_switch: false },
+              schedule: { mode: 'interval', value: 30, unit: 'minutes' }
+            },
+            code: '# Mean-Reversion Fade Strategy\n# Auto-generated by iEarnBot\n\nclass MeanReversionFade:\n    def __init__(self, params):\n        self.params = params\n\n    def on_tick(self, price_yes):\n        hi = self.params["entry"]["fade_threshold_hi"]\n        lo = self.params["entry"]["fade_threshold_lo"]\n        if price_yes > hi: return "SELL"\n        if price_yes < lo: return "BUY"\n        return "HOLD"\n'
+          }});
+        }, 1800);
+      });
+    }
+    if (cmd === 'get_strategy_params') {
+      return Promise.resolve({ ok: true, data: { params: {} }});
+    }
+    if (cmd === 'save_strategy_params') {
+      return Promise.resolve({ ok: true, data: { saved: true }});
+    }
+    if (cmd === 'run_strategy') {
+      return Promise.resolve({ ok: true, data: { status: 'running' }});
+    }
+    return Promise.resolve({ ok: false, error: 'Unknown: ' + cmd });
+  }
+
+  // State
+  var currentStrategy = null;
+  var scheduleMode = 'manual';
+  var codeVisible = false;
+
+  // Config
+  var SECTION_META = {
+    entry:    { icon: 'Target', label: 'Entry Conditions' },
+    position: { icon: 'Box',    label: 'Position Sizing' },
+    exit:     { icon: 'Door',   label: 'Exit Rules' }
+  };
+
+  var SECTION_ICONS = { entry: '🎯', position: '📦', exit: '🚪' };
+
+  var RISK_KEYS = ['max_position','max_daily_loss','max_drawdown','trailing_stop','kill_switch'];
+
+  var LABEL_MAP = {
+    fade_threshold_hi: 'Fade High 入场阈值',
+    fade_threshold_lo: 'Fade Low 入场阈值',
+    revert_target_pp:  '回归目标 (pp)',
+    max_position_usdc: '最大持仓 (USDC)',
+    size_pct:          '仓位比例 %',
+    take_profit_pp:    '止盈 (pp)',
+    stop_loss_pp:      '止损 (pp)',
+    momentum_pp:       '触发动量 (pp)',
+    window_hours:      '窗口 (小时)',
+    max_position:      '最大持仓 (USDC)',
+    max_daily_loss:    '每日最大亏损',
+    max_drawdown:      '最大回撤',
+    trailing_stop:     '追踪止损',
+    kill_switch:       '🔴 急停 Kill Switch',
+    dry_run:           '模拟运行 Dry Run',
+    mode:              '运行模式',
+    value:             '间隔数值',
+    unit:              '间隔单位'
+  };
+
+  function getLabel(key) {
+    return LABEL_MAP[key] || key.replace(/_/g,' ');
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function inferType(key, val) {
+    if (typeof val === 'boolean') return 'boolean';
+    if (typeof val === 'number')  return 'number';
+    if (Array.isArray(val))       return 'array';
+    if (key === 'unit')           return 'unit_select';
+    return 'string';
+  }
+
+  function renderCtrl(key, val, section) {
+    var type = inferType(key, val);
+    var da = ' data-key="' + escHtml(key) + '" data-section="' + escHtml(section) + '"';
+    if (type === 'boolean') {
+      var kill = (key === 'kill_switch');
+      return '<div class="toggle-wrap">' +
+        '<input type="checkbox" class="toggle' + (kill ? ' kill' : '') + ' param-ctrl"' + da + (val ? ' checked' : '') + '>' +
+        '<span class="tlabel" style="font-size:12px;color:var(--subtle)">' + (val ? 'ON' : 'OFF') + '</span>' +
+        '</div>';
+    }
+    if (type === 'number') {
+      var step = (val < 1 && val > 0) ? '0.001' : '1';
+      return '<input type="number" class="form-input param-input param-ctrl"' + da + ' value="' + escHtml(val) + '" step="' + step + '">';
+    }
+    if (type === 'array') {
+      return '<input type="text" class="form-input param-input param-ctrl"' + da + ' value="' + escHtml((val||[]).join(', ')) + '" placeholder="comma separated">';
+    }
+    if (type === 'unit_select') {
+      var units = ['minutes','hours','days','weeks','months'];
+      var opts = units.map(function(u) { return '<option value="' + u + '"' + (u===val?' selected':'') + '>' + u + '</option>'; }).join('');
+      return '<select class="form-select param-input param-ctrl" style="width:130px"' + da + '>' + opts + '</select>';
+    }
+    return '<input type="text" class="form-input param-input param-ctrl"' + da + ' value="' + escHtml(val||'') + '">';
+  }
+
+  function renderSection(section, fields) {
+    var icon = SECTION_ICONS[section] || '⚙️';
+    var meta = SECTION_META[section] || { label: section.charAt(0).toUpperCase()+section.slice(1) };
+    var rows = Object.keys(fields).map(function(key) {
+      return '<div class="param-row">' +
+        '<div class="param-meta">' +
+          '<div class="param-label">' + escHtml(getLabel(key)) + '</div>' +
+          '<div class="param-key">' + escHtml(section+'.'+key) + '</div>' +
+        '</div>' +
+        '<div class="param-ctrl-wrap">' + renderCtrl(key, fields[key], section) + '</div>' +
+        '</div>';
+    }).join('');
+    return '<div class="section-label">' + icon + ' ' + escHtml(meta.label) + '</div>' +
+           '<div class="params-section">' + rows + '</div>';
+  }
+
+  function renderParamsForm(params) {
+    var skip = { risk: 1, schedule: 1 };
+    var html = '';
+    Object.keys(params).forEach(function(sec) {
+      if (skip[sec]) return;
+      var fields = params[sec];
+      if (!fields || typeof fields !== 'object' || Array.isArray(fields)) return;
+      html += renderSection(sec, fields);
+    });
+    document.getElementById('paramsForm').innerHTML = html ||
+      '<p style="color:var(--subtle);font-size:13px">No parameters available.</p>';
+  }
+
+  function renderRiskPanel(risk) {
+    var el = document.getElementById('riskPanel');
+    if (!risk || Object.keys(risk).length === 0) { el.innerHTML = ''; return; }
+    var rows = RISK_KEYS.filter(function(k) { return k in risk; }).map(function(key) {
+      var isKill = (key === 'kill_switch');
+      var ls = isKill ? 'color:var(--red);font-weight:700' : '';
+      return '<div class="param-row">' +
+        '<div class="param-meta">' +
+          '<div class="param-label" style="' + ls + '">' + escHtml(getLabel(key)) + '</div>' +
+          '<div class="param-key">risk.' + escHtml(key) + '</div>' +
+        '</div>' +
+        '<div class="param-ctrl-wrap">' + renderCtrl(key, risk[key], 'risk') + '</div>' +
+        '</div>';
+    }).join('');
+    el.innerHTML = '<div class="risk-label">🚨 Risk Controls</div><div class="risk-card">' + rows + '</div>';
+  }
+
+  // ── Schedule UI ──
+  function setScheduleMode(mode) {
+    scheduleMode = mode;
+    document.querySelectorAll('.mode-btn').forEach(function(b) { b.classList.toggle('active', b.dataset.mode === mode); });
+    document.getElementById('schedManual').style.display   = (mode === 'manual')   ? '' : 'none';
+    document.getElementById('schedInterval').style.display = (mode === 'interval') ? '' : 'none';
+    document.getElementById('schedCron').style.display     = (mode === 'cron')     ? '' : 'none';
+  }
+
+  document.querySelectorAll('.mode-btn').forEach(function(b) {
+    b.addEventListener('click', function() { setScheduleMode(b.dataset.mode); });
+  });
+
+  function getSchedulePayload() {
+    if (scheduleMode === 'interval') {
+      return { mode: 'interval', value: parseInt(document.getElementById('intervalNum').value)||30, unit: document.getElementById('intervalUnit').value };
+    }
+    if (scheduleMode === 'cron') {
+      return { mode: 'cron', cron: document.getElementById('cronExpr').value.trim() };
+    }
+    return { mode: 'manual' };
+  }
+
+  var CRON_HINTS = {
+    '*/1 * * * *': 'Every minute', '*/5 * * * *': 'Every 5 minutes',
+    '*/10 * * * *': 'Every 10 minutes', '*/15 * * * *': 'Every 15 minutes',
+    '*/30 * * * *': 'Every 30 minutes', '0 * * * *': 'Every hour',
+    '0 0 * * *': 'Every day at midnight', '0 9 * * 1-5': 'Weekdays at 9:00 AM'
+  };
+  function updateCronHint(expr) {
+    document.getElementById('cronHint').textContent = CRON_HINTS[expr] || expr;
+  }
+  document.getElementById('cronExpr').addEventListener('input', function() { updateCronHint(this.value.trim()); });
+
+  function renderScheduleFromParams(sched) {
+    if (!sched) return;
+    setScheduleMode(sched.mode || 'manual');
+    if (sched.mode === 'interval') {
+      document.getElementById('intervalNum').value  = sched.value || 30;
+      document.getElementById('intervalUnit').value = sched.unit  || 'minutes';
+    } else if (sched.mode === 'cron') {
+      var expr = sched.cron || '*/30 * * * *';
+      document.getElementById('cronExpr').value = expr;
+      updateCronHint(expr);
+    }
+  }
+
+  // ── Collect params from DOM ──
+  function collectParams() {
+    var result = {};
+    document.querySelectorAll('.param-ctrl').forEach(function(el) {
+      var sec = el.dataset.section, key = el.dataset.key;
+      if (!sec || !key) return;
+      if (!result[sec]) result[sec] = {};
+      if (el.type === 'checkbox') {
+        result[sec][key] = el.checked;
+      } else if (el.type === 'number') {
+        result[sec][key] = parseFloat(el.value) || 0;
+      } else if (el.tagName === 'SELECT') {
+        result[sec][key] = el.value;
+      } else {
+        var raw = el.value.trim();
+        if (raw.indexOf(',') !== -1) {
+          result[sec][key] = raw.split(',').map(function(s) { return s.trim(); }).filter(Boolean);
+        } else {
+          result[sec][key] = raw;
+        }
+      }
+    });
+    result.schedule = getSchedulePayload();
+    return result;
+  }
+
+  // ── Show result ──
   function showResult(strategy) {
     currentStrategy = strategy;
     document.getElementById('resultPlaceholder').style.display = 'none';
-    document.getElementById('resultContent').style.display = 'flex';
-    document.getElementById('stratName').textContent = strategy.name;
-    document.getElementById('stratDesc').textContent = strategy.desc;
-    document.getElementById('paramsForm').innerHTML = renderParams(strategy.params);
+    var rc = document.getElementById('resultContent');
+    rc.style.display = 'flex';
+
+    document.getElementById('stratName').textContent = strategy.name        || '—';
+    document.getElementById('stratDesc').textContent = strategy.description || '—';
+
+    var params = strategy.params || {};
+    renderParamsForm(params);
+    renderRiskPanel(params.risk || {});
+    renderScheduleFromParams(params.schedule);
+
+    if (strategy.code) {
+      document.getElementById('codeBlock').textContent = strategy.code;
+    }
+
+    // Toggle labels
+    document.querySelectorAll('.toggle.param-ctrl').forEach(function(el) {
+      el.addEventListener('change', function() {
+        var sp = el.nextElementSibling;
+        if (sp && sp.classList.contains('tlabel')) sp.textContent = el.checked ? 'ON' : 'OFF';
+      });
+    });
   }
 
-  document.getElementById('generateBtn').addEventListener('click', () => {
-    const url   = document.getElementById('stratUrl').value.trim();
-    const brief = document.getElementById('stratBrief').value.trim();
-    if (!url && !brief) {
-      document.getElementById('stratUrl').focus();
+  // ── Load markets ──
+  function loadMarkets() {
+    ipcSend('list_markets').then(function(res) {
+      var markets = (res && res.data && res.data.markets) ? res.data.markets : [];
+      var sel = document.getElementById('marketSelect');
+      markets.forEach(function(m) {
+        var opt = document.createElement('option');
+        opt.value = m.name;
+        opt.textContent = m.name + (m.url ? ' — ' + m.url : '');
+        sel.appendChild(opt);
+      });
+    }).catch(function(e) { console.warn('list_markets:', e); });
+  }
+
+  // ── Fetch URL ──
+  document.getElementById('fetchBtn').addEventListener('click', function() {
+    var url = document.getElementById('sourceUrl').value.trim();
+    if (!url) return;
+    var btn = document.getElementById('fetchBtn');
+    var errEl = document.getElementById('urlError');
+    btn.disabled = true; btn.textContent = '…';
+    errEl.classList.remove('visible');
+    ipcSend('fetch_url', { url: url }).then(function(res) {
+      if (res && res.ok && res.data && res.data.text) {
+        document.getElementById('sourceText').value = res.data.text;
+      } else {
+        errEl.classList.add('visible');
+      }
+    }).catch(function() {
+      errEl.classList.add('visible');
+    }).finally(function() {
+      btn.disabled = false; btn.textContent = 'Fetch';
+    });
+  });
+
+  // ── Generate strategy ──
+  var GEN_STEPS = ['🔍 Reading article…', '🤖 AI analyzing…', '📝 Building strategy…'];
+
+  document.getElementById('generateBtn').addEventListener('click', function() {
+    var url    = document.getElementById('sourceUrl').value.trim();
+    var text   = document.getElementById('sourceText').value.trim();
+    var market = document.getElementById('marketSelect').value;
+    var hint   = document.getElementById('marketHint').value.trim();
+    if (!url && !text) {
+      document.getElementById('sourceUrl').focus();
       return;
     }
-    const btn = document.getElementById('generateBtn');
-    const prog = document.getElementById('genProgress');
+
+    var btn = document.getElementById('generateBtn');
+    var stepEl = document.getElementById('genStep');
     btn.disabled = true;
-    prog.style.display = 'block';
+    btn.innerHTML = '<span class="spinner"></span> Generating...';
 
-    setTimeout(() => {
-      const pick = DEMO_STRATEGIES[Math.floor(Math.random() * DEMO_STRATEGIES.length)];
-      showResult(pick);
-      btn.disabled = false;
-      prog.style.display = 'none';
-    }, 1800);
+    var stepIdx = 0;
+    stepEl.textContent = GEN_STEPS[0];
+    var stepTimer = setInterval(function() {
+      stepIdx = (stepIdx + 1) % GEN_STEPS.length;
+      stepEl.textContent = GEN_STEPS[stepIdx];
+    }, 700);
+
+    ipcSend('generate_strategy', { url: url, text: text, market: market, hint: hint })
+      .then(function(res) {
+        if (res && res.ok && res.data) {
+          showResult(res.data);
+          // Try to fetch server-side params (may override demo defaults)
+          if (res.data.id) {
+            ipcSend('get_strategy_params', { strategy_id: res.data.id }).then(function(pr) {
+              if (pr && pr.ok && pr.data && pr.data.params && Object.keys(pr.data.params).length > 0) {
+                var strategy = Object.assign({}, currentStrategy, { params: pr.data.params });
+                showResult(strategy);
+              }
+            }).catch(function() {});
+          }
+        } else {
+          alert('Generation failed: ' + (res && res.error ? res.error : 'Unknown error'));
+        }
+      })
+      .catch(function(e) {
+        alert('Error: ' + e.message);
+      })
+      .finally(function() {
+        clearInterval(stepTimer);
+        btn.disabled = false;
+        btn.textContent = '\u2728 Generate Strategy';
+        stepEl.textContent = '';
+      });
   });
 
-  document.getElementById('loadParamsBtn').addEventListener('click', async () => {
-    const p = document.getElementById('paramsPath').value.trim();
-    if (!p) return;
-    try {
-      if (window.top?.ipcApi) {
-        const yaml = await window.top.ipcApi.readFile(p.replace('~', ''));
-        // Minimal yaml parse (key: value lines only)
-        const params = yaml.split('\n').filter(l => l.includes(':')).map(l => {
-          const [k, ...rest] = l.split(':');
-          const val = rest.join(':').trim();
-          return { key: k.trim(), label: k.trim(), type: isNaN(val) ? (val === 'true' || val === 'false' ? 'boolean' : 'string') : 'number', value: isNaN(val) ? val : Number(val) };
-        });
-        showResult({ name: 'Loaded from file', desc: p, params });
-      }
-    } catch (e) {
-      alert('Could not load file: ' + e.message);
-    }
+  /* View Code toggle */
+  document.getElementById('viewCodeBtn').addEventListener('click', function() {
+    codeVisible = !codeVisible;
+    var block = document.getElementById('codeBlock');
+    block.classList.toggle('visible', codeVisible);
+    this.textContent = codeVisible ? '\ud83d\udccb Hide Code' : '\ud83d\udccb View Code';
   });
 
-  document.getElementById('saveDeployBtn').addEventListener('click', () => {
+  /* Save Parameters */
+  document.getElementById('saveParamsBtn').addEventListener('click', function() {
     if (!currentStrategy) return;
-    const values = {};
-    document.querySelectorAll('.param-ctrl').forEach(el => {
-      values[el.dataset.key] = el.type === 'checkbox' ? el.checked : Number(el.value);
-    });
-    const payload = { ...currentStrategy, values };
-    const strategies = JSON.parse(localStorage.getItem('deployedStrategies') || '[]');
-    strategies.push({ ...payload, id: 'strat-' + Date.now(), status: 'stopped', schedule: 'manual' });
-    localStorage.setItem('deployedStrategies', JSON.stringify(strategies));
-    document.getElementById('saveDeployBtn').textContent = '✅ Saved!';
-    setTimeout(() => { document.getElementById('saveDeployBtn').textContent = '💾 Save & Deploy'; }, 2000);
+    var btn = this;
+    var params = collectParams();
+    var id = currentStrategy.id || ('strat-' + Date.now());
+    btn.disabled = true;
+    ipcSend('save_strategy_params', { strategy_id: id, params: params })
+      .then(function(res) {
+        if (res && res.ok) {
+          btn.textContent = '\u2705 Saved!';
+          setTimeout(function() {
+            btn.textContent = '\ud83d\udcbe Save Parameters';
+            btn.disabled = false;
+          }, 2000);
+        } else {
+          alert('Save failed: ' + (res && res.error ? res.error : 'Unknown error'));
+          btn.disabled = false;
+        }
+      })
+      .catch(function(e) {
+        alert('Error: ' + e.message);
+        btn.disabled = false;
+      });
   });
+
+  /* Deploy & Run */
+  document.getElementById('deployBtn').addEventListener('click', function() {
+    if (!currentStrategy) return;
+    var btn = this;
+    var params = collectParams();
+    var id = currentStrategy.id || ('strat-' + Date.now());
+    btn.disabled = true;
+    btn.textContent = '\u23f3 Deploying...';
+
+    ipcSend('save_strategy_params', { strategy_id: id, params: params })
+      .then(function() {
+        return ipcSend('run_strategy', {
+          strategy_id: id,
+          schedule: params.schedule || { mode: 'manual' }
+        });
+      })
+      .then(function(res) {
+        if (res && res.ok) {
+          btn.textContent = '\u2705 Running!';
+          setTimeout(function() {
+            btn.innerHTML = '&#9654; Deploy &amp; Run';
+            btn.disabled = false;
+          }, 3000);
+        } else {
+          alert('Deploy failed: ' + (res && res.error ? res.error : 'Unknown error'));
+          btn.innerHTML = '&#9654; Deploy &amp; Run';
+          btn.disabled = false;
+        }
+      })
+      .catch(function(e) {
+        alert('Error: ' + e.message);
+        btn.innerHTML = '&#9654; Deploy &amp; Run';
+        btn.disabled = false;
+      });
+  });
+
+  /* Init */
+  loadMarkets();
   </script>
 </body>
 </html>
